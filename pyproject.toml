@@ -29,12 +29,16 @@ dev = [
     "pytest>=7.0",
     "ruff>=0.4",
 ]
+mcp = [
+    "mcp>=1.0",
+]
 embedding = [
     "sentence-transformers>=2.0",
 ]
 
 [project.scripts]
 am = "agentic_memory.cli:main"
+am-mcp = "agentic_memory.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/MakiDevelop/agentic-memory"
