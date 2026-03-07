@@ -251,6 +251,23 @@ class SQLiteStore:
         ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
+    def search_any(self, query: str, limit: int = 10) -> list[MemoryRecord]:
+        """Full-text search using OR logic (matches any token). Used for conflict detection."""
+        tokenized = tokenize_for_fts(query)
+        tokens = [f'"{token}"' for token in tokenized.split() if token.strip()]
+        if not tokens:
+            return []
+        safe_query = " OR ".join(tokens)
+        rows = self._conn.execute(
+            """SELECT m.* FROM memories m
+               JOIN memories_fts fts ON m.rowid = fts.rowid
+               WHERE memories_fts MATCH ?
+               ORDER BY rank
+               LIMIT ?""",
+            (safe_query, limit),
+        ).fetchall()
+        return [self._row_to_record(row) for row in rows]
+
     def list_all(self, limit: int = 100) -> list[MemoryRecord]:
         """List all memories."""
         rows = self._conn.execute(

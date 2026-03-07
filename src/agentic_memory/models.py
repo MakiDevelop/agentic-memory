@@ -54,6 +54,7 @@ class MemoryRecord:
     importance: int = 1  # 0=low, 1=normal, 2=high, 3=critical
     ttl_seconds: int | None = None  # None=never expires
     source_hash: str = ""
+    conflict_ids: list[str] = field(default_factory=list)  # IDs of potentially conflicting memories
 
     @property
     def evidence_list(self) -> list[Evidence]:
@@ -106,6 +107,36 @@ class QueryResult:
     citations: list[Citation] = field(default_factory=list)
     confidence: float = 1.0
     memories: list[MemoryRecord] = field(default_factory=list)
+
+
+@dataclass
+class AddResult:
+    """Result of adding a memory, including conflict information."""
+
+    record: MemoryRecord
+    was_duplicate: bool = False
+    conflicts: list[MemoryRecord] = field(default_factory=list)
+
+
+@dataclass
+class CompactResult:
+    """Result of a compact operation."""
+
+    expired_removed: int = 0
+    total_before: int = 0
+    total_after: int = 0
+
+
+@dataclass
+class EvalMetrics:
+    """Evaluation metrics for memory system quality."""
+
+    total_queries: int = 0
+    total_memories: int = 0
+    avg_latency_ms: float = 0.0
+    avg_results_per_query: float = 0.0
+    expired_count: int = 0
+    stale_count: int = 0
 
 
 @dataclass

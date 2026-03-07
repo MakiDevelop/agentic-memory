@@ -15,6 +15,9 @@ from agentic_memory.embedding import EmbeddingProvider, TFIDFEmbedding
 from agentic_memory.evidence import FileRef, GitCommitRef, ManualRef, URLRef
 from agentic_memory.memory import Memory
 from agentic_memory.models import (
+    AddResult,
+    CompactResult,
+    EvalMetrics,
     MemoryKind,
     MemoryRecord,
     QueryResult,
@@ -33,6 +36,9 @@ __all__ = [
     "RetrievalLog",
     "ValidationResult",
     "ValidationStatus",
+    "AddResult",
+    "CompactResult",
+    "EvalMetrics",
     "FileRef",
     "GitCommitRef",
     "URLRef",

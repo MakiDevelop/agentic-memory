@@ -11,7 +11,8 @@ from agentic_memory.content_validator import ContentValidator, read_evidence_con
 from agentic_memory.embedding import EmbeddingProvider
 from agentic_memory.evidence import Evidence, FileRef
 from agentic_memory.models import (
-    Citation, MemoryKind, MemoryRecord, QueryResult, RetrievalLog, ValidationStatus, _content_hash,
+    AddResult, Citation, CompactResult, EvalMetrics, MemoryKind, MemoryRecord,
+    QueryResult, RetrievalLog, ValidationStatus, _content_hash,
 )
 from agentic_memory.store import SQLiteStore
 
@@ -166,6 +167,10 @@ class Memory:
         worst = max(statuses, key=lambda s: severity.get(s[0], 0))
         record.validation_status = worst[0]
         record.validation_message = worst[1]
+
+        # Conflict detection: search for similar existing memories with different content
+        conflicts = self._detect_conflicts(content, content_hash)
+        record.conflict_ids = [c.id for c in conflicts]
 
         self._store.save(record)
 
@@ -383,6 +388,168 @@ class Memory:
     def retrieval_stats(self, limit: int = 100) -> list[RetrievalLog]:
         """Get recent retrieval logs."""
         return self._store.get_retrieval_stats(limit=limit)
+
+    _STOP_WORDS = frozenset({
+        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could",
+        "should", "may", "might", "shall", "can", "need", "must",
+        "in", "on", "at", "to", "for", "of", "with", "by", "from", "as",
+        "into", "about", "between", "through", "during", "before", "after",
+        "and", "but", "or", "nor", "not", "no", "so", "yet",
+        "this", "that", "these", "those", "it", "its", "we", "our",
+        "uses", "use", "used", "using",
+    })
+
+    def _significant_words(self, text: str) -> set[str]:
+        """Extract significant (non-stop) words from text."""
+        return {w.lower() for w in text.split() if w.lower() not in self._STOP_WORDS and len(w) > 2}
+
+    def _detect_conflicts(self, content: str, content_hash: str) -> list[MemoryRecord]:
+        """Find existing memories that might conflict with new content."""
+        new_words = self._significant_words(content)
+        if len(new_words) < 2:
+            return []
+        try:
+            candidates = self._store.search_any(content, limit=10)
+        except Exception:
+            return []
+
+        conflicts = []
+        for c in candidates:
+            if c.source_hash == content_hash or c.is_expired:
+                continue
+            existing_words = self._significant_words(c.content)
+            if not existing_words:
+                continue
+            # Require at least 40% word overlap to consider it a conflict
+            overlap = len(new_words & existing_words)
+            overlap_ratio = overlap / min(len(new_words), len(existing_words))
+            if overlap_ratio >= 0.4:
+                conflicts.append(c)
+        return conflicts
+
+    def detect_conflicts(self, content: str) -> list[MemoryRecord]:
+        """Find existing memories that potentially conflict with the given content."""
+        return self._detect_conflicts(content, _content_hash(content))
+
+    def add_with_result(
+        self,
+        content: str,
+        evidence: Evidence | list[Evidence],
+        tags: list[str] | None = None,
+        kind: MemoryKind | str = MemoryKind.FACT,
+        importance: int = 1,
+        ttl_seconds: int | None = None,
+        deduplicate: bool = True,
+    ) -> AddResult:
+        """Add a memory and return rich result with conflict/dedup info.
+
+        Same as add() but returns AddResult instead of bare MemoryRecord.
+        """
+        content_hash = _content_hash(content)
+        was_duplicate = False
+
+        if deduplicate:
+            existing = self._store.find_by_hash(content_hash)
+            if existing is not None:
+                conflicts = self._detect_conflicts(content, content_hash)
+                return AddResult(record=existing, was_duplicate=True, conflicts=conflicts)
+
+        record = self.add(
+            content, evidence, tags=tags, kind=kind,
+            importance=importance, ttl_seconds=ttl_seconds, deduplicate=False,
+        )
+        conflicts = [self._store.get(cid) for cid in record.conflict_ids]
+        conflicts = [c for c in conflicts if c is not None]
+        return AddResult(record=record, was_duplicate=was_duplicate, conflicts=conflicts)
+
+    def compact(self) -> CompactResult:
+        """Remove expired memories and return cleanup stats."""
+        all_memories = self._store.list_all(limit=10000)
+        total_before = len(all_memories)
+        expired_removed = 0
+
+        for record in all_memories:
+            if record.is_expired:
+                self._store.delete(record.id)
+                expired_removed += 1
+
+        return CompactResult(
+            expired_removed=expired_removed,
+            total_before=total_before,
+            total_after=total_before - expired_removed,
+        )
+
+    def create_if_useful(
+        self,
+        content: str,
+        evidence: Evidence | list[Evidence],
+        tags: list[str] | None = None,
+        kind: MemoryKind | str = MemoryKind.FACT,
+        importance: int = 1,
+        ttl_seconds: int | None = None,
+        min_importance: int = 0,
+    ) -> AddResult | None:
+        """Add a memory only if it passes admission + importance threshold.
+
+        Returns AddResult if added, None if rejected (too low importance or admission fail).
+        """
+        if importance < min_importance:
+            return None
+
+        try:
+            return self.add_with_result(
+                content, evidence, tags=tags, kind=kind,
+                importance=importance, ttl_seconds=ttl_seconds,
+            )
+        except ValueError:
+            return None
+
+    def search_context(
+        self,
+        query: str,
+        limit: int = 5,
+        kind: MemoryKind | str | None = None,
+        min_importance: int = 0,
+    ) -> str:
+        """Query memories and return a formatted context string for agent consumption.
+
+        Returns a ready-to-use text block with memories, citations, and confidence.
+        """
+        result = self.query(query, limit=limit, kind=kind, min_importance=min_importance)
+
+        if not result.memories:
+            return f"No memories found for: {query}"
+
+        lines = [f"Found {len(result.memories)} memories:"]
+        for i, mem in enumerate(result.memories, 1):
+            status_icon = {"valid": "✓", "stale": "⚠", "invalid": "✗", "unchecked": "?"}
+            icon = status_icon.get(mem.validation_status.value, "?")
+            lines.append(f"\n[{i}] {mem.content}")
+            lines.append(f"    {icon} {mem.evidence_label} [{mem.validation_status.value}]")
+            lines.append(f"    kind={mem.kind.value} importance={mem.importance} confidence={mem.confidence:.1f}")
+            if mem.conflict_ids:
+                lines.append(f"    ⚡ conflicts with: {', '.join(mem.conflict_ids)}")
+        lines.append(f"\nOverall confidence: {result.confidence:.1f}")
+        return "\n".join(lines)
+
+    def eval_metrics(self) -> EvalMetrics:
+        """Compute evaluation metrics for the memory system."""
+        all_memories = self._store.list_all(limit=10000)
+        logs = self._store.get_retrieval_stats(limit=10000)
+        s = self.status()
+
+        avg_latency = sum(l.latency_ms for l in logs) / len(logs) if logs else 0.0
+        avg_results = sum(l.result_count for l in logs) / len(logs) if logs else 0.0
+
+        return EvalMetrics(
+            total_queries=len(logs),
+            total_memories=len(all_memories),
+            avg_latency_ms=round(avg_latency, 2),
+            avg_results_per_query=round(avg_results, 2),
+            expired_count=s["expired"],
+            stale_count=s["stale"],
+        )
 
     def list_all(self, limit: int = 100) -> list[MemoryRecord]:
         """List all memories."""
