@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from agentic_memory.admission import AdmissionController, AlwaysAdmit
 from agentic_memory.evidence import Evidence, FileRef
 from agentic_memory.models import Citation, MemoryRecord, QueryResult, ValidationStatus
 from agentic_memory.store import SQLiteStore
@@ -19,10 +20,16 @@ class Memory:
         result = mem.query("What linter?")
     """
 
-    def __init__(self, repo_path: str | Path, db_name: str = ".agentic-memory.db"):
+    def __init__(
+        self,
+        repo_path: str | Path,
+        db_name: str = ".agentic-memory.db",
+        admission: AdmissionController | None = None,
+    ):
         self.repo_path = str(Path(repo_path).resolve())
         db_path = os.path.join(self.repo_path, db_name)
         self._store = SQLiteStore(db_path)
+        self._admission = admission or AlwaysAdmit()
 
     def add(
         self,
@@ -42,7 +49,16 @@ class Memory:
 
         Raises:
             TypeError: If evidence is not an Evidence instance.
+            ValueError: If admission control rejects the memory.
         """
+        # Admission control gate
+        admission_result = self._admission.check(content, tags)
+        if not admission_result.admitted:
+            raise ValueError(
+                f"Memory rejected by admission control (score={admission_result.score}): "
+                f"{admission_result.reason}"
+            )
+
         if not isinstance(evidence, Evidence):
             raise TypeError(
                 f"evidence must be an Evidence instance (FileRef, GitCommitRef, URLRef, ManualRef), "

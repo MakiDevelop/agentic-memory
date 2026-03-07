@@ -1,5 +1,11 @@
 """agentic-memory: Repo memory for AI agents with citation verification."""
 
+from agentic_memory.admission import (
+    AdmissionController,
+    AlwaysAdmit,
+    HeuristicAdmissionController,
+    LLMAdmissionController,
+)
 from agentic_memory.evidence import FileRef, GitCommitRef, ManualRef, URLRef
 from agentic_memory.memory import Memory
 from agentic_memory.models import MemoryRecord, QueryResult, ValidationStatus
@@ -15,4 +21,8 @@ __all__ = [
     "GitCommitRef",
     "URLRef",
     "ManualRef",
+    "AdmissionController",
+    "AlwaysAdmit",
+    "HeuristicAdmissionController",
+    "LLMAdmissionController",
 ]
