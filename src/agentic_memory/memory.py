@@ -10,7 +10,9 @@ from agentic_memory.admission import AdmissionController, AlwaysAdmit
 from agentic_memory.content_validator import ContentValidator, read_evidence_content
 from agentic_memory.embedding import EmbeddingProvider
 from agentic_memory.evidence import Evidence, FileRef
-from agentic_memory.models import Citation, MemoryRecord, QueryResult, ValidationStatus
+from agentic_memory.models import (
+    Citation, MemoryKind, MemoryRecord, QueryResult, RetrievalLog, ValidationStatus, _content_hash,
+)
 from agentic_memory.store import SQLiteStore
 
 
@@ -93,6 +95,10 @@ class Memory:
         content: str,
         evidence: Evidence | list[Evidence],
         tags: list[str] | None = None,
+        kind: MemoryKind | str = MemoryKind.FACT,
+        importance: int = 1,
+        ttl_seconds: int | None = None,
+        deduplicate: bool = True,
     ) -> MemoryRecord:
         """Add a memory with required evidence.
 
@@ -100,6 +106,10 @@ class Memory:
             content: The knowledge to remember.
             evidence: Citation source(s). Single Evidence or list of Evidence.
             tags: Optional tags for categorization.
+            kind: Memory type (fact/rule/antipattern/preference/decision).
+            importance: Priority level 0-3 (0=low, 1=normal, 2=high, 3=critical).
+            ttl_seconds: Time-to-live in seconds. None=never expires.
+            deduplicate: If True, skip adding if identical content already exists.
 
         Returns:
             The created MemoryRecord.
@@ -108,6 +118,10 @@ class Memory:
             TypeError: If evidence is not an Evidence instance (or list thereof).
             ValueError: If admission control rejects the memory.
         """
+        # Normalize kind
+        if isinstance(kind, str):
+            kind = MemoryKind(kind)
+
         # Admission control gate
         admission_result = self._admission.check(content, tags)
         if not admission_result.admitted:
@@ -128,10 +142,21 @@ class Memory:
             if isinstance(e, FileRef):
                 e.capture_hash(self.repo_path)
 
+        # Deduplication check
+        content_hash = _content_hash(content)
+        if deduplicate:
+            existing = self._store.find_by_hash(content_hash)
+            if existing is not None:
+                return existing
+
         record = MemoryRecord(
             content=content,
             evidence=evidence,
             tags=tags or [],
+            kind=kind,
+            importance=max(0, min(3, importance)),
+            ttl_seconds=ttl_seconds,
+            source_hash=content_hash,
         )
 
         # Validate on creation — take worst status across all evidence
@@ -156,26 +181,33 @@ class Memory:
         limit: int = 5,
         validate: bool = True,
         include_stale: bool = True,
+        kind: MemoryKind | str | None = None,
+        min_importance: int = 0,
         *,
         fts_weight: float = 0.65,
         vector_weight: float = 0.35,
     ) -> QueryResult:
         """Query memories with hybrid search and automatic citation validation.
 
-        Combines FTS5 full-text search with vector similarity when an embedding
-        provider is configured. Results are ranked using weighted score fusion.
-
         Args:
             query: Search query string.
             limit: Maximum number of memories to return.
             validate: Whether to re-validate citations before returning.
             include_stale: Whether to include stale/invalid memories in results.
+            kind: Filter by memory kind (e.g., "rule", "fact").
+            min_importance: Minimum importance level (0-3).
             fts_weight: Weight for FTS5 scores in hybrid ranking (default: 0.65).
             vector_weight: Weight for vector scores in hybrid ranking (default: 0.35).
 
         Returns:
             QueryResult with answer, citations, and confidence.
         """
+        import time
+        t0 = time.monotonic()
+
+        if isinstance(kind, str):
+            kind = MemoryKind(kind)
+
         fetch_limit = max(limit * 3, 20)
 
         # FTS5 search
@@ -208,7 +240,18 @@ class Memory:
             scored.append((record, hybrid))
 
         scored.sort(key=lambda item: item[1], reverse=True)
-        records = [r for r, _ in scored[:limit]]
+        records = [r for r, _ in scored]
+
+        # Filter by kind and importance
+        if kind is not None:
+            records = [r for r in records if r.kind == kind]
+        if min_importance > 0:
+            records = [r for r in records if r.importance >= min_importance]
+
+        # Filter expired memories (TTL)
+        records = [r for r in records if not r.is_expired]
+
+        records = records[:limit]
 
         # Validation
         if validate:
@@ -218,8 +261,8 @@ class Memory:
         if not include_stale:
             records = [r for r in records if r.validation_status == ValidationStatus.VALID]
 
-        # Sort by confidence descending
-        records.sort(key=lambda r: r.confidence, reverse=True)
+        # Sort by importance (primary) then confidence (secondary)
+        records.sort(key=lambda r: (r.importance, r.confidence), reverse=True)
 
         citations = [
             Citation(
@@ -235,12 +278,23 @@ class Memory:
         answer = "\n".join(r.content for r in records) if records else ""
         avg_confidence = sum(r.confidence for r in records) / len(records) if records else 0.0
 
-        return QueryResult(
+        qr = QueryResult(
             answer=answer,
             citations=citations,
             confidence=avg_confidence,
             memories=records,
         )
+
+        # Log retrieval
+        latency = (time.monotonic() - t0) * 1000
+        self._store.log_retrieval(RetrievalLog(
+            query=query,
+            returned_ids=[r.id for r in records],
+            result_count=len(records),
+            latency_ms=latency,
+        ))
+
+        return qr
 
     def get(self, memory_id: str) -> MemoryRecord | None:
         """Get a specific memory by ID."""
@@ -251,7 +305,16 @@ class Memory:
         return self._store.delete(memory_id)
 
     def _validate_record(self, record: MemoryRecord) -> None:
-        """Validate a single record: evidence check + optional content check."""
+        """Validate a single record: TTL + evidence check + optional content check."""
+        # TTL check
+        if record.is_expired:
+            record.validation_status = ValidationStatus.STALE
+            record.validation_message = "Memory expired (TTL exceeded)"
+            record.confidence = max(0.1, record.confidence * 0.5)
+            record.updated_at = datetime.now()
+            self._store.save(record)
+            return
+
         evidence_items = record.evidence_list
         if not evidence_items:
             record.validation_status = ValidationStatus.UNCHECKED
@@ -307,13 +370,19 @@ class Memory:
         for record in all_memories:
             counts[record.validation_status] += 1
 
+        expired = sum(1 for r in all_memories if r.is_expired)
         return {
             "total": len(all_memories),
             "valid": counts[ValidationStatus.VALID],
             "stale": counts[ValidationStatus.STALE],
             "invalid": counts[ValidationStatus.INVALID],
             "unchecked": counts[ValidationStatus.UNCHECKED],
+            "expired": expired,
         }
+
+    def retrieval_stats(self, limit: int = 100) -> list[RetrievalLog]:
+        """Get recent retrieval logs."""
+        return self._store.get_retrieval_stats(limit=limit)
 
     def list_all(self, limit: int = 100) -> list[MemoryRecord]:
         """List all memories."""

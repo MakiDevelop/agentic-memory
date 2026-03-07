@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import hashlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -21,6 +22,21 @@ class ValidationStatus(enum.Enum):
     UNCHECKED = "unchecked"  # not yet validated
 
 
+class MemoryKind(enum.Enum):
+    """Type of memory content."""
+
+    FACT = "fact"
+    RULE = "rule"
+    ANTIPATTERN = "antipattern"
+    PREFERENCE = "preference"
+    DECISION = "decision"
+
+
+def _content_hash(content: str) -> str:
+    """Generate a hash for deduplication."""
+    return hashlib.sha256(content.strip().lower().encode()).hexdigest()[:32]
+
+
 @dataclass
 class MemoryRecord:
     """A single memory entry with its evidence chain."""
@@ -34,6 +50,10 @@ class MemoryRecord:
     validation_status: ValidationStatus = ValidationStatus.UNCHECKED
     validation_message: str = ""
     tags: list[str] = field(default_factory=list)
+    kind: MemoryKind = MemoryKind.FACT
+    importance: int = 1  # 0=low, 1=normal, 2=high, 3=critical
+    ttl_seconds: int | None = None  # None=never expires
+    source_hash: str = ""
 
     @property
     def evidence_list(self) -> list[Evidence]:
@@ -46,6 +66,14 @@ class MemoryRecord:
     def evidence_label(self) -> str:
         """Human-readable label for all evidence sources."""
         return " | ".join(e.short_label() for e in self.evidence_list)
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if memory has exceeded its TTL."""
+        if self.ttl_seconds is None:
+            return False
+        elapsed = (datetime.now() - self.created_at).total_seconds()
+        return elapsed > self.ttl_seconds
 
 
 @dataclass
@@ -78,3 +106,14 @@ class QueryResult:
     citations: list[Citation] = field(default_factory=list)
     confidence: float = 1.0
     memories: list[MemoryRecord] = field(default_factory=list)
+
+
+@dataclass
+class RetrievalLog:
+    """Log entry for a memory query."""
+
+    query: str
+    returned_ids: list[str]
+    result_count: int
+    latency_ms: float = 0.0
+    created_at: datetime = field(default_factory=datetime.now)

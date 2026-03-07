@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from agentic_memory.evidence import evidence_from_dict
-from agentic_memory.models import MemoryRecord, ValidationStatus
+from agentic_memory.models import MemoryKind, MemoryRecord, RetrievalLog, ValidationStatus, _content_hash
 from agentic_memory.tokenizer import has_cjk, is_jieba_available, tokenize_for_fts
 
 
@@ -82,6 +82,8 @@ class SQLiteStore:
             self._upgrade_fts_v2()
         if version < 3:
             self._upgrade_v3()
+        if version < 4:
+            self._upgrade_v4()
 
         self._conn.commit()
 
@@ -120,6 +122,49 @@ class SQLiteStore:
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '3')"
         )
 
+    def _upgrade_v4(self) -> None:
+        """Schema v4: kind, importance, TTL, source_hash, retrieval_logs."""
+        # Add new columns (ALTER TABLE ADD COLUMN is safe in SQLite)
+        for col_def in [
+            "kind TEXT DEFAULT 'fact'",
+            "importance INTEGER DEFAULT 1",
+            "ttl_seconds INTEGER DEFAULT NULL",
+            "source_hash TEXT DEFAULT ''",
+        ]:
+            try:
+                self._conn.execute(f"ALTER TABLE memories ADD COLUMN {col_def}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+        # Backfill source_hash for existing records
+        rows = self._conn.execute("SELECT id, content FROM memories WHERE source_hash = '' OR source_hash IS NULL").fetchall()
+        for row in rows:
+            self._conn.execute(
+                "UPDATE memories SET source_hash = ? WHERE id = ?",
+                (_content_hash(row[1]), row[0]),
+            )
+
+        # Index for dedup lookups
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_hash ON memories(source_hash)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)")
+
+        # Retrieval logs table
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS retrieval_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query TEXT NOT NULL,
+                returned_ids TEXT NOT NULL,
+                result_count INTEGER NOT NULL,
+                latency_ms REAL DEFAULT 0.0,
+                created_at TEXT NOT NULL
+            )
+        """)
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_created_at ON retrieval_logs(created_at)")
+
+        self._conn.execute(
+            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '4')"
+        )
+
     def _serialize_evidence(self, evidence) -> str:
         """Serialize evidence (single or list) to JSON string."""
         if isinstance(evidence, list):
@@ -145,8 +190,9 @@ class SQLiteStore:
         self._conn.execute(
             """INSERT OR REPLACE INTO memories
                (id, content, evidence_json, created_at, updated_at,
-                confidence, validation_status, validation_message, tags_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                confidence, validation_status, validation_message, tags_json,
+                kind, importance, ttl_seconds, source_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record.id,
                 record.content,
@@ -157,6 +203,10 @@ class SQLiteStore:
                 record.validation_status.value,
                 record.validation_message,
                 json.dumps(record.tags),
+                record.kind.value,
+                record.importance,
+                record.ttl_seconds,
+                record.source_hash or _content_hash(record.content),
             ),
         )
 
@@ -300,7 +350,52 @@ class SQLiteStore:
     def close(self) -> None:
         self._conn.close()
 
+    def find_by_hash(self, source_hash: str) -> MemoryRecord | None:
+        """Find a memory by content hash (for deduplication)."""
+        row = self._conn.execute(
+            "SELECT * FROM memories WHERE source_hash = ?", (source_hash,)
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_record(row)
+
+    def log_retrieval(self, log: RetrievalLog) -> None:
+        """Record a retrieval event."""
+        self._conn.execute(
+            """INSERT INTO retrieval_logs (query, returned_ids, result_count, latency_ms, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                log.query,
+                json.dumps(log.returned_ids),
+                log.result_count,
+                log.latency_ms,
+                log.created_at.isoformat(),
+            ),
+        )
+        self._conn.commit()
+
+    def get_retrieval_stats(self, limit: int = 100) -> list[RetrievalLog]:
+        """Get recent retrieval logs."""
+        rows = self._conn.execute(
+            "SELECT * FROM retrieval_logs ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [
+            RetrievalLog(
+                query=row["query"],
+                returned_ids=json.loads(row["returned_ids"]),
+                result_count=row["result_count"],
+                latency_ms=row["latency_ms"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            for row in rows
+        ]
+
     def _row_to_record(self, row: sqlite3.Row) -> MemoryRecord:
+        cols = row.keys()
+        kind_val = row["kind"] if "kind" in cols else "fact"
+        importance_val = row["importance"] if "importance" in cols else 1
+        ttl_val = row["ttl_seconds"] if "ttl_seconds" in cols else None
+        hash_val = row["source_hash"] if "source_hash" in cols else ""
         return MemoryRecord(
             id=row["id"],
             content=row["content"],
@@ -311,4 +406,8 @@ class SQLiteStore:
             validation_status=ValidationStatus(row["validation_status"]),
             validation_message=row["validation_message"],
             tags=json.loads(row["tags_json"]),
+            kind=MemoryKind(kind_val),
+            importance=importance_val,
+            ttl_seconds=ttl_val,
+            source_hash=hash_val,
         )
