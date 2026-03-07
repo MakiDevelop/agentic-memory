@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from pathlib import Path
 
 from agentic_memory.admission import AdmissionController, AlwaysAdmit
@@ -116,6 +117,8 @@ class Memory:
             )
 
         evidence_items = evidence if isinstance(evidence, list) else [evidence]
+        if not evidence_items:
+            raise ValueError("evidence must not be empty")
         for e in evidence_items:
             if not isinstance(e, Evidence):
                 raise TypeError(
@@ -249,16 +252,22 @@ class Memory:
 
     def _validate_record(self, record: MemoryRecord) -> None:
         """Validate a single record: evidence check + optional content check."""
+        evidence_items = record.evidence_list
+        if not evidence_items:
+            record.validation_status = ValidationStatus.UNCHECKED
+            record.validation_message = "No evidence to validate"
+            return
+
         severity = {ValidationStatus.VALID: 0, ValidationStatus.UNCHECKED: 1,
                     ValidationStatus.STALE: 2, ValidationStatus.INVALID: 3}
 
         # Validate all evidence items, take worst status
-        statuses = [e.validate(self.repo_path) for e in record.evidence_list]
+        statuses = [e.validate(self.repo_path) for e in evidence_items]
         status, message = max(statuses, key=lambda s: severity.get(s[0], 0))
 
         # Content-level validation (only if evidence is valid and validator is configured)
         if status == ValidationStatus.VALID and self._content_validator is not None:
-            for e in record.evidence_list:
+            for e in evidence_items:
                 evidence_content = read_evidence_content(e, self.repo_path)
                 if evidence_content is not None:
                     cv_result = self._content_validator.check(record.content, evidence_content)
@@ -275,9 +284,8 @@ class Memory:
         elif status == ValidationStatus.INVALID:
             record.confidence = 0.0
 
-        self._store.update_validation(record.id, status, message, record.confidence)
-
-        # Persist relocated evidence (e.g., FileRef with updated line numbers)
+        # Single write: update timestamp + persist relocated evidence
+        record.updated_at = datetime.now()
         self._store.save(record)
 
     def validate(self) -> list[MemoryRecord]:

@@ -73,28 +73,23 @@ def _find_snippet_in_file(path: str, snippet: str) -> tuple[int, int] | None:
     """Search for a content snippet in a file and return its new line range.
 
     Returns (start_line, end_line) 1-indexed, or None if not found.
+    Skips snippets shorter than 20 chars to avoid false positives.
     """
     if not snippet or len(snippet.strip()) < 20:
         return None
     try:
         with open(path) as f:
-            all_lines = f.readlines()
+            full_text = f.read()
     except (FileNotFoundError, OSError):
         return None
 
-    full_text = "".join(all_lines)
     pos = full_text.find(snippet)
     if pos == -1:
         return None
 
-    # Convert character position to line numbers
-    prefix = full_text[:pos]
-    start_line = prefix.count("\n") + 1
-    snippet_line_count = snippet.count("\n") + (0 if snippet.endswith("\n") else 1)
-    # Adjust: if snippet ends with newline, the count is exact
-    if snippet.endswith("\n"):
-        snippet_line_count = snippet.count("\n")
-    end_line = start_line + snippet_line_count - 1
+    start_line = full_text[:pos].count("\n") + 1
+    lines_in_snippet = snippet.count("\n") + (0 if snippet.endswith("\n") else 1)
+    end_line = start_line + lines_in_snippet - 1
     return (start_line, end_line)
 
 
