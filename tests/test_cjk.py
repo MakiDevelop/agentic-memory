@@ -1,7 +1,9 @@
 """Tests for CJK (Chinese/Japanese/Korean) text support."""
 
+from unittest import mock
+
 from agentic_memory import Memory, ManualRef, TFIDFEmbedding
-from agentic_memory.tokenizer import has_cjk, tokenize_for_fts
+from agentic_memory.tokenizer import has_cjk, tokenize_for_fts, _CJK_STOP_CHARS
 
 
 class TestTokenizer:
@@ -30,6 +32,34 @@ class TestTokenizer:
         tokens = result.split()
         # Should have multiple tokens (not one big string)
         assert len(tokens) > 1
+
+    def test_stop_chars_filtered_in_fallback(self):
+        """Without jieba, CJK stop characters should be filtered."""
+        import agentic_memory.tokenizer as tok
+
+        with mock.patch.object(tok, "_jieba_available", False):
+            result = tok.tokenize_for_fts("評分用什麼模型")
+            # "用", "什", "麼" are stop chars, should be filtered
+            assert "什" not in result.split()
+            assert "麼" not in result.split()
+            assert "用" not in result.split()
+            # Content words should remain
+            assert "評" in result.split()
+            assert "模" in result.split()
+
+    def test_multiword_query_without_jieba(self, tmp_path):
+        """Without jieba, CJK queries should still find results via OR."""
+        import agentic_memory.tokenizer as tok
+        import agentic_memory.store as store_mod
+
+        # Both store and query without jieba — consistent char-level tokenization
+        with mock.patch.object(tok, "_jieba_available", False), \
+             mock.patch.object(store_mod, "is_jieba_available", return_value=False):
+            mem = Memory(str(tmp_path))
+            mem.add("9 維 LLM 評分系統 qwen3 模型", evidence=ManualRef("docs"))
+            result = mem.query("評分用什麼模型")
+            assert len(result.memories) > 0
+        mem.close()
 
 
 class TestFTS5Chinese:

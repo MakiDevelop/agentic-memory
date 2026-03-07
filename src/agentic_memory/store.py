@@ -12,7 +12,7 @@ import numpy as np
 
 from agentic_memory.evidence import evidence_from_dict
 from agentic_memory.models import MemoryRecord, ValidationStatus
-from agentic_memory.tokenizer import tokenize_for_fts
+from agentic_memory.tokenizer import has_cjk, is_jieba_available, tokenize_for_fts
 
 
 @dataclass(frozen=True)
@@ -161,8 +161,15 @@ class SQLiteStore:
     def search(self, query: str, limit: int = 10) -> list[MemoryRecord]:
         """Full-text search for memories. Tokenizes CJK text automatically."""
         tokenized = tokenize_for_fts(query)
-        # Quote each token to prevent FTS5 interpreting special chars as operators
-        safe_query = " ".join(f'"{token}"' for token in tokenized.split())
+        tokens = [f'"{token}"' for token in tokenized.split() if token.strip()]
+        if not tokens:
+            return []
+        # CJK character-level fallback (no jieba): use OR to avoid requiring all chars
+        # With jieba: use AND (word-level tokens are meaningful)
+        if has_cjk(query) and not is_jieba_available():
+            safe_query = " OR ".join(tokens)
+        else:
+            safe_query = " ".join(tokens)
         rows = self._conn.execute(
             """SELECT m.* FROM memories m
                JOIN memories_fts fts ON m.rowid = fts.rowid

@@ -16,7 +16,7 @@ from agentic_memory.evidence import FileRef, GitCommitRef, ManualRef, URLRef
 from agentic_memory.memory import Memory
 from agentic_memory.models import MemoryRecord, QueryResult, ValidationStatus
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 __all__ = [
     "Memory",
