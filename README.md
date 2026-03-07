@@ -67,9 +67,10 @@ stale = mem.validate()
 pip install memcite
 ```
 
-With MCP server support:
+With extras:
 ```bash
-pip install memcite[mcp]
+pip install memcite[mcp]     # MCP server for Claude Code
+pip install memcite[api]     # REST API server (FastAPI)
 ```
 
 ## CLI Usage
@@ -88,13 +89,92 @@ am validate
 am status
 ```
 
+## MCP Server
+
+Add to your `.mcp.json` to use with Claude Code:
+
+```json
+{
+  "mcpServers": {
+    "agentic-memory": {
+      "command": "am-mcp",
+      "args": ["--repo", "/path/to/your/project"]
+    }
+  }
+}
+```
+
+Tools: `memory_add`, `memory_query`, `memory_validate`, `memory_status`, `memory_list`, `memory_delete`
+
+## REST API
+
+```bash
+am-server --repo /path/to/repo --port 8080
+```
+
+OpenAPI docs at `http://localhost:8080/docs`. Endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/memories` | Add a memory with evidence |
+| POST | `/memories/query` | Hybrid search + citation validation |
+| GET | `/memories` | List all memories |
+| GET | `/memories/{id}` | Get a specific memory |
+| DELETE | `/memories/{id}` | Delete a memory |
+| POST | `/memories/validate` | Validate all citations |
+| GET | `/status` | Memory status summary |
+
+## Hybrid Search
+
+When initialized with an embedding provider, queries combine FTS5 full-text search with vector similarity:
+
+```python
+from agentic_memory import Memory, TFIDFEmbedding, FileRef
+
+mem = Memory("./my-project", embedding=TFIDFEmbedding())
+mem.add("Uses ruff for code formatting", evidence=FileRef("pyproject.toml", lines=(1, 5)))
+
+# Finds the memory even though "linting" != "formatting"
+result = mem.query("What linter does this project use?")
+```
+
+Default weights: FTS5 (0.65) + Vector (0.35). Customize per query:
+
+```python
+result = mem.query("linting", fts_weight=0.5, vector_weight=0.5)
+```
+
+## Admission Control
+
+Filter out low-value memories before they're stored:
+
+```python
+from agentic_memory import Memory, HeuristicAdmissionController
+
+mem = Memory("./my-project", admission=HeuristicAdmissionController())
+mem.add("ok", evidence=ManualRef("chat"))  # raises ValueError — too vague
+```
+
+Or use LLM-based scoring with any OpenAI-compatible API:
+
+```python
+from agentic_memory import LLMAdmissionController
+
+def my_llm(system: str, user: str) -> str:
+    # Call your LLM here, return JSON: {"score": 0.0-1.0, "reason": "..."}
+    ...
+
+mem = Memory("./my-project", admission=LLMAdmissionController(llm_callable=my_llm))
+```
+
 ## Roadmap
 
 - [x] Core SDK — add / query / validate with citation enforcement
-- [ ] CLI tool
-- [ ] MCP Server — use with Claude Code and other MCP clients
-- [ ] Admission control — LLM-based scoring to filter low-value memories
-- [ ] REST API server
+- [x] CLI tool
+- [x] MCP Server — use with Claude Code and other MCP clients
+- [x] Admission control — LLM-based scoring to filter low-value memories
+- [x] Hybrid search — FTS5 + TF-IDF vector fusion, pluggable embedding providers
+- [x] REST API server — FastAPI with OpenAPI docs
 - [ ] LangChain / LlamaIndex integration
 - [ ] Web dashboard
 
