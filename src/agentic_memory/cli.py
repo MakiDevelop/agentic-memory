@@ -78,6 +78,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
             icon = "⚠" if record.validation_status == ValidationStatus.STALE else "✗"
             print(f"  {icon} [{record.id}] {record.content}")
             print(f"    {record.validation_message}")
+        if args.exit_code:
+            sys.exit(1)
     else:
         print("\nAll memories are valid.")
 
@@ -160,7 +162,8 @@ def main(argv: list[str] | None = None) -> None:
     query_p.add_argument("--no-validate", action="store_true", help="Skip citation validation")
 
     # validate
-    sub.add_parser("validate", help="Validate all memories")
+    validate_p = sub.add_parser("validate", help="Validate all memories")
+    validate_p.add_argument("--exit-code", action="store_true", help="Exit with code 1 if any memory is stale/invalid (for CI)")
 
     # status
     sub.add_parser("status", help="Show memory status")
