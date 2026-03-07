@@ -137,6 +137,8 @@ class EvalMetrics:
     avg_results_per_query: float = 0.0
     expired_count: int = 0
     stale_count: int = 0
+    total_adoptions: int = 0
+    adoption_rate: float = 0.0  # adoptions / total returned results
 
 
 @dataclass

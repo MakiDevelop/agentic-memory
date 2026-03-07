@@ -84,6 +84,8 @@ class SQLiteStore:
             self._upgrade_v3()
         if version < 4:
             self._upgrade_v4()
+        if version < 5:
+            self._upgrade_v5()
 
         self._conn.commit()
 
@@ -163,6 +165,22 @@ class SQLiteStore:
 
         self._conn.execute(
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '4')"
+        )
+
+    def _upgrade_v5(self) -> None:
+        """Schema v5: adoption_logs table for tracking which memories agents actually use."""
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS adoption_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                memory_id TEXT NOT NULL,
+                query TEXT DEFAULT '',
+                agent_name TEXT DEFAULT '',
+                created_at TEXT NOT NULL
+            )
+        """)
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_adoption_memory ON adoption_logs(memory_id)")
+        self._conn.execute(
+            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '5')"
         )
 
     def _serialize_evidence(self, evidence) -> str:
@@ -406,6 +424,26 @@ class SQLiteStore:
             )
             for row in rows
         ]
+
+    def log_adoption(self, memory_id: str, query: str = "", agent_name: str = "") -> None:
+        """Record that an agent adopted (used) a memory."""
+        self._conn.execute(
+            "INSERT INTO adoption_logs (memory_id, query, agent_name, created_at) VALUES (?, ?, ?, ?)",
+            (memory_id, query, agent_name, datetime.now().isoformat()),
+        )
+        self._conn.commit()
+
+    def get_adoption_counts(self) -> dict[str, int]:
+        """Get adoption count per memory ID."""
+        rows = self._conn.execute(
+            "SELECT memory_id, COUNT(*) as cnt FROM adoption_logs GROUP BY memory_id"
+        ).fetchall()
+        return {row["memory_id"]: row["cnt"] for row in rows}
+
+    def get_adoption_total(self) -> int:
+        """Get total adoption count."""
+        row = self._conn.execute("SELECT COUNT(*) as cnt FROM adoption_logs").fetchone()
+        return row["cnt"]
 
     def _row_to_record(self, row: sqlite3.Row) -> MemoryRecord:
         cols = row.keys()

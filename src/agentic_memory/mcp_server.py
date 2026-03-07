@@ -74,6 +74,9 @@ def memory_add(
     commit_file: str | None = None,
     note: str | None = None,
     tags: list[str] | None = None,
+    kind: str = "fact",
+    importance: int = 1,
+    ttl_seconds: int | None = None,
 ) -> str:
     """Add a memory with required evidence citation.
 
@@ -91,6 +94,9 @@ def memory_add(
         commit_file: (git_commit) File path within the commit
         note: (manual) Human-provided evidence note
         tags: Optional tags for categorization
+        kind: Memory type: "fact", "rule", "antipattern", "preference", "decision" (default: "fact")
+        importance: Priority 0-3: 0=low, 1=normal, 2=high, 3=critical (default: 1)
+        ttl_seconds: Time-to-live in seconds. Omit for permanent memories.
     """
     mem = _get_memory()
     evidence = _build_evidence(
@@ -105,13 +111,22 @@ def memory_add(
     )
 
     try:
-        record = mem.add(content, evidence=evidence, tags=tags)
+        result = mem.add_with_result(
+            content, evidence=evidence, tags=tags,
+            kind=kind, importance=importance, ttl_seconds=ttl_seconds,
+        )
+        conflict_info = ""
+        if result.conflicts:
+            conflict_info = f"\nConflicts with: {', '.join(c.id for c in result.conflicts)}"
+        dedup_info = " (duplicate — returned existing)" if result.was_duplicate else ""
         return (
-            f"Memory added [{record.id}]\n"
-            f"Content: {record.content}\n"
-            f"Evidence: {record.evidence_label}\n"
-            f"Status: {record.validation_status.value}\n"
-            f"Confidence: {record.confidence}"
+            f"Memory added [{result.record.id}]{dedup_info}\n"
+            f"Content: {result.record.content}\n"
+            f"Evidence: {result.record.evidence_label}\n"
+            f"Kind: {result.record.kind.value} | Importance: {result.record.importance}\n"
+            f"Status: {result.record.validation_status.value}\n"
+            f"Confidence: {result.record.confidence}"
+            f"{conflict_info}"
         )
     except (TypeError, ValueError) as e:
         return f"Error: {e}"
@@ -123,6 +138,8 @@ def memory_query(
     limit: int = 5,
     validate: bool = True,
     include_stale: bool = True,
+    kind: str | None = None,
+    min_importance: int = 0,
 ) -> str:
     """Query memories with automatic citation re-validation.
 
@@ -134,9 +151,14 @@ def memory_query(
         limit: Maximum number of results (default: 5)
         validate: Re-validate citations before returning (default: true)
         include_stale: Include stale/invalid memories in results (default: true)
+        kind: Filter by kind: "fact", "rule", "antipattern", "preference", "decision"
+        min_importance: Minimum importance level 0-3 (default: 0)
     """
     mem = _get_memory()
-    result = mem.query(query, limit=limit, validate=validate, include_stale=include_stale)
+    result = mem.query(
+        query, limit=limit, validate=validate, include_stale=include_stale,
+        kind=kind, min_importance=min_importance,
+    )
 
     if not result.memories:
         return "No memories found."
@@ -227,6 +249,79 @@ def memory_list(limit: int = 20) -> str:
 
     lines.append(f"\nShowing {len(records)} of {mem.status()['total']} memories")
     return "\n".join(lines)
+
+
+@mcp.tool()
+def memory_adopt(memory_id: str, query: str = "", agent_name: str = "") -> str:
+    """Mark a memory as adopted — confirm that you actually used this memory.
+
+    Call this after using a memory from query results to track adoption metrics.
+
+    Args:
+        memory_id: The memory ID that was used
+        query: The query that retrieved this memory (optional)
+        agent_name: Name of the agent that used it (optional)
+    """
+    mem = _get_memory()
+    if mem.mark_adopted(memory_id, query=query, agent_name=agent_name):
+        return f"Marked memory {memory_id} as adopted."
+    return f"Memory {memory_id} not found."
+
+
+@mcp.tool()
+def memory_compact() -> str:
+    """Remove expired memories (TTL exceeded) and return cleanup stats."""
+    mem = _get_memory()
+    result = mem.compact()
+    return (
+        f"Compact complete:\n"
+        f"  Expired removed: {result.expired_removed}\n"
+        f"  Before: {result.total_before}\n"
+        f"  After: {result.total_after}"
+    )
+
+
+@mcp.tool()
+def memory_search_context(
+    query: str,
+    limit: int = 5,
+    kind: str | None = None,
+    min_importance: int = 0,
+) -> str:
+    """Search memories and return a formatted context block ready for agent use.
+
+    Returns a structured text with memories, citations, confidence, and conflict info.
+    Use this when you need memory context for decision-making.
+
+    Args:
+        query: Search query string
+        limit: Maximum results (default: 5)
+        kind: Filter by kind: "fact", "rule", "antipattern", "preference", "decision"
+        min_importance: Minimum importance 0-3 (default: 0)
+    """
+    mem = _get_memory()
+    return mem.search_context(query, limit=limit, kind=kind, min_importance=min_importance)
+
+
+@mcp.tool()
+def memory_metrics() -> str:
+    """Get health and usage metrics for the memory system.
+
+    Returns query count, memory count, latency, adoption rate, and health indicators.
+    """
+    mem = _get_memory()
+    m = mem.eval_metrics()
+    return (
+        f"Memory Metrics:\n"
+        f"  Total memories: {m.total_memories}\n"
+        f"  Total queries: {m.total_queries}\n"
+        f"  Avg latency: {m.avg_latency_ms:.1f}ms\n"
+        f"  Avg results/query: {m.avg_results_per_query:.1f}\n"
+        f"  Total adoptions: {m.total_adoptions}\n"
+        f"  Adoption rate: {m.adoption_rate:.1%}\n"
+        f"  Expired: {m.expired_count}\n"
+        f"  Stale: {m.stale_count}"
+    )
 
 
 @mcp.tool()

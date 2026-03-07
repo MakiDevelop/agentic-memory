@@ -533,6 +533,18 @@ class Memory:
         lines.append(f"\nOverall confidence: {result.confidence:.1f}")
         return "\n".join(lines)
 
+    def mark_adopted(self, memory_id: str, query: str = "", agent_name: str = "") -> bool:
+        """Mark a memory as adopted (actually used by an agent).
+
+        Call this when an agent confirms it used a memory from query results.
+        Returns True if the memory exists.
+        """
+        record = self._store.get(memory_id)
+        if record is None:
+            return False
+        self._store.log_adoption(memory_id, query=query, agent_name=agent_name)
+        return True
+
     def eval_metrics(self) -> EvalMetrics:
         """Compute evaluation metrics for the memory system."""
         all_memories = self._store.list_all(limit=10000)
@@ -542,6 +554,11 @@ class Memory:
         avg_latency = sum(l.latency_ms for l in logs) / len(logs) if logs else 0.0
         avg_results = sum(l.result_count for l in logs) / len(logs) if logs else 0.0
 
+        # Adoption metrics
+        total_adoptions = self._store.get_adoption_total()
+        total_returned = sum(l.result_count for l in logs)
+        adoption_rate = total_adoptions / total_returned if total_returned > 0 else 0.0
+
         return EvalMetrics(
             total_queries=len(logs),
             total_memories=len(all_memories),
@@ -549,6 +566,8 @@ class Memory:
             avg_results_per_query=round(avg_results, 2),
             expired_count=s["expired"],
             stale_count=s["stale"],
+            total_adoptions=total_adoptions,
+            adoption_rate=round(adoption_rate, 4),
         )
 
     def list_all(self, limit: int = 100) -> list[MemoryRecord]:

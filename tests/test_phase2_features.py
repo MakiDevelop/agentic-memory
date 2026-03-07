@@ -160,6 +160,30 @@ class TestSearchContext:
         mem.close()
 
 
+class TestAdoption:
+    def test_mark_adopted_success(self, tmp_path):
+        mem = Memory(str(tmp_path))
+        record = mem.add("useful fact here", evidence=ManualRef("docs"))
+        assert mem.mark_adopted(record.id, query="useful", agent_name="claude") is True
+        mem.close()
+
+    def test_mark_adopted_nonexistent(self, tmp_path):
+        mem = Memory(str(tmp_path))
+        assert mem.mark_adopted("nonexistent-id") is False
+        mem.close()
+
+    def test_multiple_adoptions_counted(self, tmp_path):
+        mem = Memory(str(tmp_path))
+        record = mem.add("reusable fact here", evidence=ManualRef("docs"))
+        mem.mark_adopted(record.id)
+        mem.mark_adopted(record.id)
+        mem.mark_adopted(record.id)
+
+        metrics = mem.eval_metrics()
+        assert metrics.total_adoptions == 3
+        mem.close()
+
+
 class TestEvalMetrics:
     def test_eval_metrics_basic(self, tmp_path):
         mem = Memory(str(tmp_path))
@@ -182,6 +206,19 @@ class TestEvalMetrics:
         assert metrics.total_queries == 0
         assert metrics.total_memories == 0
         assert metrics.avg_latency_ms == 0.0
+        mem.close()
+
+    def test_eval_metrics_adoption_rate(self, tmp_path):
+        mem = Memory(str(tmp_path))
+        r1 = mem.add("fact one for testing", evidence=ManualRef("a"))
+        r2 = mem.add("fact two for testing", evidence=ManualRef("b"))
+        mem.query("fact testing")  # returns 2 results
+
+        mem.mark_adopted(r1.id, query="fact testing")
+
+        metrics = mem.eval_metrics()
+        assert metrics.total_adoptions == 1
+        assert metrics.adoption_rate > 0  # 1 adoption / 2 returned
         mem.close()
 
     def test_eval_metrics_counts_stale_and_expired(self, tmp_path):
