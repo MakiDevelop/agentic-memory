@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "memcite"
-version = "0.7.0"
+version = "0.7.1"
 description = "Repo memory for AI agents — every memory has a source, every source gets verified."
 readme = "README.md"
 license = "MIT"
