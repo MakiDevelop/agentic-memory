@@ -39,6 +39,7 @@ api = [
 embedding = [
     "sentence-transformers>=2.0",
 ]
+claude = []
 
 [project.scripts]
 am = "agentic_memory.cli:main"

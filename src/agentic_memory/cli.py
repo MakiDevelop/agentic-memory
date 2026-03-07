@@ -95,6 +95,16 @@ def cmd_status(args: argparse.Namespace) -> None:
     print(f"  ? Unchecked: {s['unchecked']}")
 
 
+def cmd_claude_setup(args: argparse.Namespace) -> None:
+    """Set up memcite for Claude Code."""
+    from agentic_memory.bridges.claude import setup
+
+    messages = setup(args.repo)
+    for msg in messages:
+        print(msg)
+    print("\nDone! Restart Claude Code to activate memory tools.")
+
+
 def cmd_list(args: argparse.Namespace) -> None:
     """List all memories."""
     mem = _get_memory(args.repo)
@@ -145,6 +155,9 @@ def main(argv: list[str] | None = None) -> None:
     # status
     sub.add_parser("status", help="Show memory status")
 
+    # claude-setup
+    sub.add_parser("claude-setup", help="Set up memcite for Claude Code (MCP config + CLAUDE.md)")
+
     # list
     list_p = sub.add_parser("list", help="List all memories")
     list_p.add_argument("--limit", type=int, default=50, help="Max results")
@@ -161,6 +174,7 @@ def main(argv: list[str] | None = None) -> None:
         "validate": cmd_validate,
         "status": cmd_status,
         "list": cmd_list,
+        "claude-setup": cmd_claude_setup,
     }
     commands[args.command](args)
 
