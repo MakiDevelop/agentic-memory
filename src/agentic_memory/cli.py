@@ -95,6 +95,16 @@ def cmd_status(args: argparse.Namespace) -> None:
     print(f"  ? Unchecked: {s['unchecked']}")
 
 
+def cmd_delete(args: argparse.Namespace) -> None:
+    """Delete a memory by ID."""
+    mem = _get_memory(args.repo)
+    if mem.delete(args.memory_id):
+        print(f"Deleted memory {args.memory_id}")
+    else:
+        print(f"Memory {args.memory_id} not found")
+    mem.close()
+
+
 def cmd_claude_setup(args: argparse.Namespace) -> None:
     """Set up memcite for Claude Code."""
     from agentic_memory.bridges.claude import setup
@@ -155,6 +165,10 @@ def main(argv: list[str] | None = None) -> None:
     # status
     sub.add_parser("status", help="Show memory status")
 
+    # delete
+    delete_p = sub.add_parser("delete", help="Delete a memory by ID")
+    delete_p.add_argument("memory_id", help="Memory ID to delete")
+
     # claude-setup
     sub.add_parser("claude-setup", help="Set up memcite for Claude Code (MCP config + CLAUDE.md)")
 
@@ -174,6 +188,7 @@ def main(argv: list[str] | None = None) -> None:
         "validate": cmd_validate,
         "status": cmd_status,
         "list": cmd_list,
+        "delete": cmd_delete,
         "claude-setup": cmd_claude_setup,
     }
     commands[args.command](args)
