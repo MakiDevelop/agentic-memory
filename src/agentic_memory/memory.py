@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from agentic_memory.admission import AdmissionController, AlwaysAdmit
+from agentic_memory.content_validator import ContentValidator, read_evidence_content
 from agentic_memory.embedding import EmbeddingProvider
 from agentic_memory.evidence import Evidence, FileRef
 from agentic_memory.models import Citation, MemoryRecord, QueryResult, ValidationStatus
@@ -38,12 +39,14 @@ class Memory:
         db_name: str = ".agentic-memory.db",
         admission: AdmissionController | None = None,
         embedding: EmbeddingProvider | None = None,
+        content_validator: ContentValidator | None = None,
     ):
         self.repo_path = str(Path(repo_path).resolve())
         db_path = os.path.join(self.repo_path, db_name)
         self._store = SQLiteStore(db_path)
         self._admission = admission or AlwaysAdmit()
         self._embedding = embedding
+        self._content_validator = content_validator
         self._embedding_ready = False
 
         # Try to restore embedding provider state
@@ -204,14 +207,7 @@ class Memory:
         # Validation
         if validate:
             for record in records:
-                status, message = record.evidence.validate(self.repo_path)
-                record.validation_status = status
-                record.validation_message = message
-                if status == ValidationStatus.STALE:
-                    record.confidence = max(0.1, record.confidence * 0.5)
-                elif status == ValidationStatus.INVALID:
-                    record.confidence = 0.0
-                self._store.update_validation(record.id, status, message, record.confidence)
+                self._validate_record(record)
 
         if not include_stale:
             records = [r for r in records if r.validation_status == ValidationStatus.VALID]
@@ -247,24 +243,37 @@ class Memory:
         """Delete a memory by ID."""
         return self._store.delete(memory_id)
 
+    def _validate_record(self, record: MemoryRecord) -> None:
+        """Validate a single record: evidence check + optional content check."""
+        status, message = record.evidence.validate(self.repo_path)
+
+        # Content-level validation (only if evidence is valid and validator is configured)
+        if status == ValidationStatus.VALID and self._content_validator is not None:
+            evidence_content = read_evidence_content(record.evidence, self.repo_path)
+            if evidence_content is not None:
+                cv_result = self._content_validator.check(record.content, evidence_content)
+                if not cv_result.consistent:
+                    status = ValidationStatus.STALE
+                    message = f"Content mismatch: {cv_result.reason}"
+
+        record.validation_status = status
+        record.validation_message = message
+
+        if status == ValidationStatus.STALE:
+            record.confidence = max(0.1, record.confidence * 0.5)
+        elif status == ValidationStatus.INVALID:
+            record.confidence = 0.0
+
+        self._store.update_validation(record.id, status, message, record.confidence)
+
     def validate(self) -> list[MemoryRecord]:
         """Validate all memories and return those that are stale or invalid."""
         all_memories = self._store.list_all(limit=10000)
         problematic = []
 
         for record in all_memories:
-            status, message = record.evidence.validate(self.repo_path)
-            record.validation_status = status
-            record.validation_message = message
-
-            if status == ValidationStatus.STALE:
-                record.confidence = max(0.1, record.confidence * 0.5)
-            elif status == ValidationStatus.INVALID:
-                record.confidence = 0.0
-
-            self._store.update_validation(record.id, status, message, record.confidence)
-
-            if status in (ValidationStatus.STALE, ValidationStatus.INVALID):
+            self._validate_record(record)
+            if record.validation_status in (ValidationStatus.STALE, ValidationStatus.INVALID):
                 problematic.append(record)
 
         return problematic
