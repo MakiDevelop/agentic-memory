@@ -1,4 +1,8 @@
-# agentic-memory
+# agentic-memory (memcite)
+
+[![PyPI](https://img.shields.io/pypi/v/memcite)](https://pypi.org/project/memcite/)
+[![CI](https://github.com/MakiDevelop/agentic-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/MakiDevelop/agentic-memory/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Open-source repo memory for AI agents — every memory has a source, every source gets verified.
 
@@ -60,7 +64,12 @@ stale = mem.validate()
 ## Installation
 
 ```bash
-pip install agentic-memory
+pip install memcite
+```
+
+With MCP server support:
+```bash
+pip install memcite[mcp]
 ```
 
 ## CLI Usage

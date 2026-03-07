@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentic-memory"
+name = "memcite"
 version = "0.1.0"
 description = "Repo memory for AI agents — every memory has a source, every source gets verified."
 readme = "README.md"
@@ -43,6 +43,9 @@ am-mcp = "agentic_memory.mcp_server:main"
 [project.urls]
 Homepage = "https://github.com/MakiDevelop/agentic-memory"
 Repository = "https://github.com/MakiDevelop/agentic-memory"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentic_memory"]
 
 [tool.ruff]
 line-length = 120
