@@ -31,17 +31,31 @@ def cmd_add(args: argparse.Namespace) -> None:
         evidence = ManualRef(note=args.note or "manually added")
 
     mem = _get_memory(args.repo)
-    record = mem.add(args.content, evidence=evidence, tags=args.tag or [])
+    record = mem.add(
+        args.content,
+        evidence=evidence,
+        tags=args.tag or [],
+        kind=args.kind or "fact",
+        importance=args.importance,
+        ttl_seconds=args.ttl,
+    )
     mem.close()
     print(f"Added memory {record.id}: {record.content}")
     print(f"  Evidence: {record.evidence_label}")
+    print(f"  Kind: {record.kind.value} | Importance: {record.importance}")
     print(f"  Status: {record.validation_status.value}")
 
 
 def cmd_query(args: argparse.Namespace) -> None:
     """Query memories."""
     mem = _get_memory(args.repo)
-    result = mem.query(args.query, limit=args.limit, validate=not args.no_validate)
+    result = mem.query(
+        args.query,
+        limit=args.limit,
+        validate=not args.no_validate,
+        kind=args.kind,
+        min_importance=args.min_importance,
+    )
     mem.close()
 
     if not result.memories:
@@ -53,7 +67,7 @@ def cmd_query(args: argparse.Namespace) -> None:
         icon = status_icon.get(citation.status.value, "?")
         print(f"{i}. {memory.content}")
         print(f"   {icon} {citation.evidence.short_label()} [{citation.status.value}]")
-        print(f"   confidence: {memory.confidence:.1f}")
+        print(f"   confidence: {memory.confidence:.1f} | kind: {memory.kind.value} | importance: {memory.importance}")
         if citation.message:
             print(f"   {citation.message}")
         print()
@@ -95,6 +109,8 @@ def cmd_status(args: argparse.Namespace) -> None:
     print(f"  ⚠ Stale:     {s['stale']}")
     print(f"  ✗ Invalid:   {s['invalid']}")
     print(f"  ? Unchecked: {s['unchecked']}")
+    if s.get("expired", 0):
+        print(f"  ⏰ Expired:   {s['expired']}")
 
 
 def cmd_delete(args: argparse.Namespace) -> None:
@@ -131,7 +147,7 @@ def cmd_list(args: argparse.Namespace) -> None:
         status_icon = {"valid": "✓", "stale": "⚠", "invalid": "✗", "unchecked": "?"}
         icon = status_icon.get(record.validation_status.value, "?")
         print(f"{icon} [{record.id}] {record.content}")
-        print(f"  Evidence: {record.evidence_label}")
+        print(f"  Evidence: {record.evidence_label} | {record.kind.value} | importance: {record.importance}")
         print()
 
 
@@ -154,12 +170,17 @@ def main(argv: list[str] | None = None) -> None:
     add_p.add_argument("--commit-file", help="File path within the commit")
     add_p.add_argument("--note", "-n", help="Manual evidence note")
     add_p.add_argument("--tag", "-t", action="append", help="Tags (repeatable)")
+    add_p.add_argument("--kind", "-k", choices=["fact", "rule", "antipattern", "preference", "decision"], default="fact", help="Memory kind (default: fact)")
+    add_p.add_argument("--importance", "-i", type=int, default=1, choices=[0, 1, 2, 3], help="Importance 0-3 (default: 1)")
+    add_p.add_argument("--ttl", type=int, default=None, help="TTL in seconds (default: never expires)")
 
     # query
     query_p = sub.add_parser("query", help="Query memories")
     query_p.add_argument("query", help="Search query")
     query_p.add_argument("--limit", type=int, default=5, help="Max results")
     query_p.add_argument("--no-validate", action="store_true", help="Skip citation validation")
+    query_p.add_argument("--kind", "-k", choices=["fact", "rule", "antipattern", "preference", "decision"], default=None, help="Filter by kind")
+    query_p.add_argument("--min-importance", type=int, default=0, help="Minimum importance (0-3)")
 
     # validate
     validate_p = sub.add_parser("validate", help="Validate all memories")

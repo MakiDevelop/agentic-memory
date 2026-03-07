@@ -52,6 +52,42 @@ print(result.memories[0].content)           # "ruff with line-length=120"
 print(result.citations[0].status.value)     # "valid" or "stale"
 ```
 
+## Agentic Features (v0.6)
+
+```python
+from agentic_memory import Memory, ManualRef
+
+mem = Memory("./my-project")
+
+# Classify memories by kind
+mem.add("Never use unsafe patterns", evidence=ManualRef("security review"), kind="antipattern", importance=3)
+mem.add("Team prefers early returns", evidence=ManualRef("retro"), kind="preference")
+
+# Query with filters
+rules = mem.query("coding standards", kind="rule", min_importance=2)
+
+# Ephemeral memories with TTL (auto-expire after 1 hour)
+mem.add("Deploy freeze until 5pm", evidence=ManualRef("slack"), ttl_seconds=3600)
+
+# Deduplication — adding the same content returns the existing record
+r1 = mem.add("Uses ruff", evidence=ManualRef("docs"))
+r2 = mem.add("Uses ruff", evidence=ManualRef("other"))
+assert r1.id == r2.id  # no duplicate
+
+# Retrieval stats
+stats = mem.retrieval_stats()
+print(f"Last query: {stats[0].query}, latency: {stats[0].latency_ms:.0f}ms")
+```
+
+```bash
+# CLI: add with kind + importance + TTL
+am add "No force push to main" --note "team rule" --kind rule --importance 3
+am add "Sprint ends Friday" --note "standup" --ttl 604800  # 1 week
+
+# CLI: query with filters
+am query "coding rules" --kind rule --min-importance 2
+```
+
 ## Design Principles
 
 1. **No Evidence, No Memory** — `add()` without a citation raises an error
@@ -74,7 +110,11 @@ print(result.citations[0].status.value)     # "valid" or "stale"
 - **Citation-backed** — every memory traces back to a verifiable source
 - **Auto-validation** — stale evidence is detected before it misleads your agent
 - **Confidence scoring** — memories with invalid citations get deprioritized
-- **Copilot-inspired design** — repository-scoped memories with evidence and decay, inspired by GitHub's agentic memory architecture
+- **Memory classification** — categorize as `fact`, `rule`, `antipattern`, `preference`, or `decision`
+- **Importance scoring** — prioritize memories 0-3 (low → critical), query results sorted by importance
+- **TTL / expiration** — set time-to-live on ephemeral memories; expired ones are auto-filtered
+- **Deduplication** — identical content is detected by hash; no duplicate entries
+- **Retrieval logging** — every query is logged with returned IDs, count, and latency
 - **CLI included** — `am add`, `am query`, `am validate`, `am status`
 
 ## Installation
@@ -224,6 +264,7 @@ am validate --exit-code  # exits non-zero if any memory is INVALID
 - [x] Admission control — LLM-based scoring to filter low-value memories
 - [x] Hybrid search — FTS5 + TF-IDF vector fusion, pluggable embedding providers
 - [x] REST API server — FastAPI with OpenAPI docs
+- [x] Agentic features — kind classification, importance scoring, TTL, dedup, retrieval logging
 - [ ] GitHub App / GitLab integration (webhook + comment bot)
 - [ ] LangChain / LlamaIndex integration
 - [ ] Web dashboard
@@ -237,6 +278,9 @@ am validate --exit-code  # exits non-zero if any memory is INVALID
 | Source validation | No | No | No | **Yes** |
 | Staleness detection | No | No | No | **Yes** |
 | Repo-scoped | No | No | No | **Yes** |
+| Memory TTL | No | No | No | **Yes** |
+| Deduplication | No | Partial | No | **Yes** |
+| Retrieval logging | No | No | No | **Yes** |
 | Self-hosted | Yes | Yes | Yes | Yes |
 
 ## License
