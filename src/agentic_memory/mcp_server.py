@@ -109,7 +109,7 @@ def memory_add(
         return (
             f"Memory added [{record.id}]\n"
             f"Content: {record.content}\n"
-            f"Evidence: {record.evidence.short_label()}\n"
+            f"Evidence: {record.evidence_label}\n"
             f"Status: {record.validation_status.value}\n"
             f"Confidence: {record.confidence}"
         )
@@ -222,7 +222,7 @@ def memory_list(limit: int = 20) -> str:
         icon = status_icons.get(record.validation_status.value, "?")
         lines.append(
             f"[{record.id}] {record.content}\n"
-            f"  [{icon}] {record.evidence.short_label()} | confidence: {record.confidence:.1f}"
+            f"  [{icon}] {record.evidence_label} | confidence: {record.confidence:.1f}"
         )
 
     lines.append(f"\nShowing {len(records)} of {mem.status()['total']} memories")

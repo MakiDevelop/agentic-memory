@@ -34,7 +34,7 @@ def cmd_add(args: argparse.Namespace) -> None:
     record = mem.add(args.content, evidence=evidence, tags=args.tag or [])
     mem.close()
     print(f"Added memory {record.id}: {record.content}")
-    print(f"  Evidence: {record.evidence.short_label()}")
+    print(f"  Evidence: {record.evidence_label}")
     print(f"  Status: {record.validation_status.value}")
 
 
@@ -129,7 +129,7 @@ def cmd_list(args: argparse.Namespace) -> None:
         status_icon = {"valid": "✓", "stale": "⚠", "invalid": "✗", "unchecked": "?"}
         icon = status_icon.get(record.validation_status.value, "?")
         print(f"{icon} [{record.id}] {record.content}")
-        print(f"  Evidence: {record.evidence.short_label()}")
+        print(f"  Evidence: {record.evidence_label}")
         print()
 
 

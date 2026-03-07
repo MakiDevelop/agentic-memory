@@ -26,7 +26,7 @@ class MemoryRecord:
     """A single memory entry with its evidence chain."""
 
     content: str
-    evidence: Evidence
+    evidence: Evidence | list[Evidence]
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
@@ -34,6 +34,31 @@ class MemoryRecord:
     validation_status: ValidationStatus = ValidationStatus.UNCHECKED
     validation_message: str = ""
     tags: list[str] = field(default_factory=list)
+
+    @property
+    def evidence_list(self) -> list[Evidence]:
+        """Always returns evidence as a list for uniform iteration."""
+        if isinstance(self.evidence, list):
+            return self.evidence
+        return [self.evidence]
+
+    @property
+    def evidence_label(self) -> str:
+        """Human-readable label for all evidence sources."""
+        return " | ".join(e.short_label() for e in self.evidence_list)
+
+
+@dataclass
+class ValidationResult:
+    """Rich validation result with optional diff content."""
+
+    status: ValidationStatus
+    message: str
+    old_content: str | None = None
+    new_content: str | None = None
+
+    def as_tuple(self) -> tuple[ValidationStatus, str]:
+        return (self.status, self.message)
 
 
 @dataclass

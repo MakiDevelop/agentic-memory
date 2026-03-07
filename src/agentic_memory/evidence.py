@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from agentic_memory.models import ValidationStatus
+from agentic_memory.models import ValidationResult, ValidationStatus
 
 
 class Evidence(ABC):
@@ -31,6 +31,15 @@ class Evidence(ABC):
     def from_dict(cls, data: dict[str, Any]) -> Evidence:
         """Deserialize from dictionary."""
 
+    def validate_detail(self, repo_path: str) -> ValidationResult:
+        """Validate with rich result including diff content.
+
+        Default implementation wraps validate(). Subclasses can override
+        to provide old_content/new_content for diffs.
+        """
+        status, message = self.validate(repo_path)
+        return ValidationResult(status=status, message=message)
+
     @abstractmethod
     def short_label(self) -> str:
         """Human-readable short label for display."""
@@ -48,6 +57,47 @@ def _file_content_hash(path: str, start: int | None = None, end: int | None = No
         return ""
 
 
+def _read_lines(path: str, start: int | None = None, end: int | None = None) -> str:
+    """Read file content, optionally only specific lines. Returns empty string on error."""
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+        if start is not None and end is not None:
+            lines = lines[start - 1 : end]  # 1-indexed
+        return "".join(lines)
+    except (FileNotFoundError, OSError):
+        return ""
+
+
+def _find_snippet_in_file(path: str, snippet: str) -> tuple[int, int] | None:
+    """Search for a content snippet in a file and return its new line range.
+
+    Returns (start_line, end_line) 1-indexed, or None if not found.
+    """
+    if not snippet or len(snippet.strip()) < 20:
+        return None
+    try:
+        with open(path) as f:
+            all_lines = f.readlines()
+    except (FileNotFoundError, OSError):
+        return None
+
+    full_text = "".join(all_lines)
+    pos = full_text.find(snippet)
+    if pos == -1:
+        return None
+
+    # Convert character position to line numbers
+    prefix = full_text[:pos]
+    start_line = prefix.count("\n") + 1
+    snippet_line_count = snippet.count("\n") + (0 if snippet.endswith("\n") else 1)
+    # Adjust: if snippet ends with newline, the count is exact
+    if snippet.endswith("\n"):
+        snippet_line_count = snippet.count("\n")
+    end_line = start_line + snippet_line_count - 1
+    return (start_line, end_line)
+
+
 @dataclass
 class FileRef(Evidence):
     """Evidence from a file at specific line range."""
@@ -55,6 +105,7 @@ class FileRef(Evidence):
     path: str
     lines: tuple[int, int] | None = None
     content_hash: str = field(default="", repr=False)
+    content_snapshot: str = field(default="", repr=False)
 
     def __post_init__(self):
         if not self.content_hash:
@@ -62,10 +113,11 @@ class FileRef(Evidence):
             pass
 
     def capture_hash(self, repo_path: str) -> None:
-        """Capture current content hash for future validation."""
+        """Capture current content hash and content snapshot for future validation."""
         full_path = os.path.join(repo_path, self.path)
         start, end = self.lines if self.lines else (None, None)
         self.content_hash = _file_content_hash(full_path, start, end)
+        self.content_snapshot = _read_lines(full_path, start, end)
 
     def validate(self, repo_path: str) -> tuple[ValidationStatus, str]:
         full_path = os.path.join(repo_path, self.path)
@@ -78,18 +130,45 @@ class FileRef(Evidence):
         start, end = self.lines if self.lines else (None, None)
         current_hash = _file_content_hash(full_path, start, end)
         if current_hash != self.content_hash:
+            # Try fuzzy relocation using content snapshot
+            if self.content_snapshot:
+                new_pos = _find_snippet_in_file(full_path, self.content_snapshot)
+                if new_pos is not None:
+                    self.lines = new_pos
+                    self.content_hash = _file_content_hash(full_path, new_pos[0], new_pos[1])
+                    return ValidationStatus.VALID, (
+                        f"Content relocated from L{start}-{end} to L{new_pos[0]}-{new_pos[1]}"
+                    )
             return ValidationStatus.STALE, f"Content changed at {self.path}" + (
                 f" L{start}-{end}" if start else ""
             )
         return ValidationStatus.VALID, "Content matches"
 
+    def validate_detail(self, repo_path: str) -> ValidationResult:
+        """Validate with diff: provides old and new content when stale."""
+        full_path = os.path.join(repo_path, self.path)
+        status, message = self.validate(repo_path)
+        if status == ValidationStatus.STALE:
+            start, end = self.lines if self.lines else (None, None)
+            new_content = _read_lines(full_path, start, end)
+            return ValidationResult(
+                status=status,
+                message=message,
+                old_content=self.content_snapshot or None,
+                new_content=new_content or None,
+            )
+        return ValidationResult(status=status, message=message)
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "type": "file",
             "path": self.path,
             "lines": list(self.lines) if self.lines else None,
             "content_hash": self.content_hash,
         }
+        if self.content_snapshot:
+            d["content_snapshot"] = self.content_snapshot
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> FileRef:
@@ -97,6 +176,7 @@ class FileRef(Evidence):
             path=data["path"],
             lines=tuple(data["lines"]) if data.get("lines") else None,
             content_hash=data.get("content_hash", ""),
+            content_snapshot=data.get("content_snapshot", ""),
         )
 
     def short_label(self) -> str:

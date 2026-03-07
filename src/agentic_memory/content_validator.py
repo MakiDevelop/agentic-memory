@@ -20,12 +20,8 @@ class ContentValidationResult:
     reason: str
 
 
-def read_evidence_content(evidence: Evidence, repo_path: str) -> str | None:
-    """Read the actual text content that an evidence points to.
-
-    Returns None if evidence type doesn't support content reading
-    or if the file is not found.
-    """
+def _read_single_evidence_content(evidence: Evidence, repo_path: str) -> str | None:
+    """Read content from a single evidence source."""
     if isinstance(evidence, FileRef):
         full_path = os.path.join(repo_path, evidence.path)
         try:
@@ -37,6 +33,20 @@ def read_evidence_content(evidence: Evidence, repo_path: str) -> str | None:
             return "".join(lines)
         except (FileNotFoundError, OSError):
             return None
+    return None
+
+
+def read_evidence_content(evidence: Evidence | list[Evidence], repo_path: str) -> str | None:
+    """Read the actual text content that an evidence points to.
+
+    For multi-evidence, returns the first readable content found.
+    Returns None if no evidence supports content reading.
+    """
+    items = evidence if isinstance(evidence, list) else [evidence]
+    for e in items:
+        content = _read_single_evidence_content(e, repo_path)
+        if content is not None:
+            return content
     return None
 
 

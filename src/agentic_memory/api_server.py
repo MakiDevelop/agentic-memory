@@ -125,7 +125,7 @@ def _record_to_response(record: Any) -> MemoryResponse:
     return MemoryResponse(
         id=record.id,
         content=record.content,
-        evidence_label=record.evidence.short_label(),
+        evidence_label=record.evidence_label,
         confidence=record.confidence,
         validation_status=record.validation_status.value,
         validation_message=record.validation_message,

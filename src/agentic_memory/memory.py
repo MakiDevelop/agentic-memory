@@ -90,21 +90,21 @@ class Memory:
     def add(
         self,
         content: str,
-        evidence: Evidence,
+        evidence: Evidence | list[Evidence],
         tags: list[str] | None = None,
     ) -> MemoryRecord:
         """Add a memory with required evidence.
 
         Args:
             content: The knowledge to remember.
-            evidence: Citation source (FileRef, GitCommitRef, URLRef, ManualRef).
+            evidence: Citation source(s). Single Evidence or list of Evidence.
             tags: Optional tags for categorization.
 
         Returns:
             The created MemoryRecord.
 
         Raises:
-            TypeError: If evidence is not an Evidence instance.
+            TypeError: If evidence is not an Evidence instance (or list thereof).
             ValueError: If admission control rejects the memory.
         """
         # Admission control gate
@@ -115,15 +115,15 @@ class Memory:
                 f"{admission_result.reason}"
             )
 
-        if not isinstance(evidence, Evidence):
-            raise TypeError(
-                f"evidence must be an Evidence instance (FileRef, GitCommitRef, URLRef, ManualRef), "
-                f"got {type(evidence).__name__}"
-            )
-
-        # Capture content hash for FileRef
-        if isinstance(evidence, FileRef):
-            evidence.capture_hash(self.repo_path)
+        evidence_items = evidence if isinstance(evidence, list) else [evidence]
+        for e in evidence_items:
+            if not isinstance(e, Evidence):
+                raise TypeError(
+                    f"evidence must be an Evidence instance (FileRef, GitCommitRef, URLRef, ManualRef), "
+                    f"got {type(e).__name__}"
+                )
+            if isinstance(e, FileRef):
+                e.capture_hash(self.repo_path)
 
         record = MemoryRecord(
             content=content,
@@ -131,10 +131,13 @@ class Memory:
             tags=tags or [],
         )
 
-        # Validate on creation
-        status, message = evidence.validate(self.repo_path)
-        record.validation_status = status
-        record.validation_message = message
+        # Validate on creation — take worst status across all evidence
+        statuses = [e.validate(self.repo_path) for e in evidence_items]
+        severity = {ValidationStatus.VALID: 0, ValidationStatus.UNCHECKED: 1,
+                    ValidationStatus.STALE: 2, ValidationStatus.INVALID: 3}
+        worst = max(statuses, key=lambda s: severity.get(s[0], 0))
+        record.validation_status = worst[0]
+        record.validation_message = worst[1]
 
         self._store.save(record)
 
@@ -217,11 +220,12 @@ class Memory:
 
         citations = [
             Citation(
-                evidence=r.evidence,
+                evidence=e,
                 status=r.validation_status,
                 message=r.validation_message,
             )
             for r in records
+            for e in r.evidence_list
         ]
 
         # Build answer from top memories
@@ -245,16 +249,23 @@ class Memory:
 
     def _validate_record(self, record: MemoryRecord) -> None:
         """Validate a single record: evidence check + optional content check."""
-        status, message = record.evidence.validate(self.repo_path)
+        severity = {ValidationStatus.VALID: 0, ValidationStatus.UNCHECKED: 1,
+                    ValidationStatus.STALE: 2, ValidationStatus.INVALID: 3}
+
+        # Validate all evidence items, take worst status
+        statuses = [e.validate(self.repo_path) for e in record.evidence_list]
+        status, message = max(statuses, key=lambda s: severity.get(s[0], 0))
 
         # Content-level validation (only if evidence is valid and validator is configured)
         if status == ValidationStatus.VALID and self._content_validator is not None:
-            evidence_content = read_evidence_content(record.evidence, self.repo_path)
-            if evidence_content is not None:
-                cv_result = self._content_validator.check(record.content, evidence_content)
-                if not cv_result.consistent:
-                    status = ValidationStatus.STALE
-                    message = f"Content mismatch: {cv_result.reason}"
+            for e in record.evidence_list:
+                evidence_content = read_evidence_content(e, self.repo_path)
+                if evidence_content is not None:
+                    cv_result = self._content_validator.check(record.content, evidence_content)
+                    if not cv_result.consistent:
+                        status = ValidationStatus.STALE
+                        message = f"Content mismatch: {cv_result.reason}"
+                        break
 
         record.validation_status = status
         record.validation_message = message
@@ -265,6 +276,9 @@ class Memory:
             record.confidence = 0.0
 
         self._store.update_validation(record.id, status, message, record.confidence)
+
+        # Persist relocated evidence (e.g., FileRef with updated line numbers)
+        self._store.save(record)
 
     def validate(self) -> list[MemoryRecord]:
         """Validate all memories and return those that are stale or invalid."""

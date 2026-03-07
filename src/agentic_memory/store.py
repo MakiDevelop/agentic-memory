@@ -80,6 +80,8 @@ class SQLiteStore:
         version = self._get_schema_version()
         if version < 2:
             self._upgrade_fts_v2()
+        if version < 3:
+            self._upgrade_v3()
 
         self._conn.commit()
 
@@ -112,6 +114,25 @@ class SQLiteStore:
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '2')"
         )
 
+    def _upgrade_v3(self) -> None:
+        """Mark schema v3: multi-evidence support (no DDL changes, evidence_json handles both dict and list)."""
+        self._conn.execute(
+            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '3')"
+        )
+
+    def _serialize_evidence(self, evidence) -> str:
+        """Serialize evidence (single or list) to JSON string."""
+        if isinstance(evidence, list):
+            return json.dumps([e.to_dict() for e in evidence])
+        return json.dumps(evidence.to_dict())
+
+    def _deserialize_evidence(self, raw: str):
+        """Deserialize evidence JSON (handles both dict and list formats)."""
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [evidence_from_dict(e) for e in data]
+        return evidence_from_dict(data)
+
     def save(self, record: MemoryRecord) -> None:
         """Insert or update a memory record."""
         # Remove old FTS5 entry if updating
@@ -129,7 +150,7 @@ class SQLiteStore:
             (
                 record.id,
                 record.content,
-                json.dumps(record.evidence.to_dict()),
+                self._serialize_evidence(record.evidence),
                 record.created_at.isoformat(),
                 record.updated_at.isoformat(),
                 record.confidence,
@@ -280,11 +301,10 @@ class SQLiteStore:
         self._conn.close()
 
     def _row_to_record(self, row: sqlite3.Row) -> MemoryRecord:
-        evidence_data = json.loads(row["evidence_json"])
         return MemoryRecord(
             id=row["id"],
             content=row["content"],
-            evidence=evidence_from_dict(evidence_data),
+            evidence=self._deserialize_evidence(row["evidence_json"]),
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
             confidence=row["confidence"],
