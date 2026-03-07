@@ -88,6 +88,35 @@ am add "Sprint ends Friday" --note "standup" --ttl 604800  # 1 week
 am query "coding rules" --kind rule --min-importance 2
 ```
 
+## Phase 2: Agent-Ready Features (v0.7)
+
+```python
+from agentic_memory import Memory, ManualRef
+
+mem = Memory("./my-project")
+
+# Conflict detection — warns when new memory contradicts existing ones
+mem.add("project uses ruff for code linting", evidence=ManualRef("docs"))
+result = mem.add_with_result("project uses black for code linting", evidence=ManualRef("pr"))
+if result.conflicts:
+    print(f"Conflicts with {len(result.conflicts)} existing memories!")
+
+# create_if_useful — only store if important enough
+added = mem.create_if_useful("minor note", evidence=ManualRef("chat"), importance=0, min_importance=2)
+assert added is None  # rejected: below threshold
+
+# compact — clean up expired memories
+mem.compact()  # returns CompactResult(expired_removed=3, total_before=10, total_after=7)
+
+# search_context — formatted context string for agent prompts
+context = mem.search_context("linting rules", kind="rule", min_importance=2)
+# → "Found 2 memories:\n[1] No force push to main\n    ✓ team rule [valid]..."
+
+# eval_metrics — system health at a glance
+metrics = mem.eval_metrics()
+print(f"Queries: {metrics.total_queries}, Avg latency: {metrics.avg_latency_ms}ms")
+```
+
 ## Design Principles
 
 1. **No Evidence, No Memory** — `add()` without a citation raises an error
