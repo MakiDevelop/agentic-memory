@@ -4,41 +4,52 @@
 [![CI](https://github.com/MakiDevelop/agentic-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/MakiDevelop/agentic-memory/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Open-source repo memory for AI agents — every memory has a source, every source gets verified.
+> **`pip install memcite`**
 
-> **Package name on PyPI: [`memcite`](https://pypi.org/project/memcite/)**
+Let your AI agent remember project settings — and know when they've changed.
 
-Designed for coding agents, code review agents, and CLI tools that work on a single repository at a time.
+## The problem
 
-## Why
+Your AI agent remembers "this project uses Jest for testing." Two weeks later, someone switches to Vitest. The agent doesn't know. It keeps writing Jest tests and breaks your CI.
 
-AI agents forget everything between sessions. Existing memory layers (mem0, Zep, LangMem) store text in vector DBs but can't tell you *where* that knowledge came from or whether it's still true.
+This isn't hallucination — the memory *was* correct. It's **stale memory**, and it's worse than hallucination because the agent is confident about it.
 
-**agentic-memory** enforces a simple rule: **No evidence, no memory.**
+## The fix
 
-Every memory must cite its source (file path + line number, git commit, URL). Before an agent uses a memory, the citation is automatically re-validated. Stale memories get flagged, not silently served.
+memcite forces every memory to cite its source. Before using a memory, it checks: **is the source still the same?**
 
-## How it works
+```bash
+# Tell the agent "we use ruff" and point to the proof
+am add "Uses ruff for linting, line-length=120" --file pyproject.toml --lines 15-20
+
+# Later, ask what linter we use
+am query "linting"
+# → ✓ Uses ruff for linting, line-length=120
+#     pyproject.toml L15-20 [valid]
+
+# Now go change pyproject.toml, then:
+am validate
+# → ⚠ 1 memory stale (evidence changed)
+#     "Uses ruff for linting" ← pyproject.toml L15-20 changed
+```
+
+That's it. Memory with a source. Source gets checked. Stale = flagged.
+
+## Python SDK
 
 ```python
 from agentic_memory import Memory, FileRef
 
 mem = Memory("./my-project")
 
-# Store a memory — citation is required
 mem.add(
     "This project uses ruff for linting with line-length=120",
     evidence=FileRef("pyproject.toml", lines=(15, 20)),
 )
 
-# Query — returns answer + citation status
 result = mem.query("What linter does this project use?")
-print(result.answer)     # "ruff with line-length=120"
-print(result.citations)  # [FileRef("pyproject.toml", L15-20, status=VALID)]
-
-# Validate all memories — find what's gone stale
-stale = mem.validate()
-# [StaleMemory("ruff config", reason="file content changed at L15")]
+print(result.memories[0].content)           # "ruff with line-length=120"
+print(result.citations[0].status.value)     # "valid" or "stale"
 ```
 
 ## Design Principles
@@ -96,9 +107,11 @@ am validate
 am status
 ```
 
-## MCP Server
+## MCP Server (Claude Code / Cursor / etc.)
 
-Add to your `.mcp.json` to use with Claude Code:
+memcite includes a built-in MCP server that **runs locally on your machine** — no cloud service, no API key, no deployment needed. Claude Code spawns it automatically as a subprocess.
+
+**Quick setup:** add this to your project's `.mcp.json`:
 
 ```json
 {
@@ -111,7 +124,9 @@ Add to your `.mcp.json` to use with Claude Code:
 }
 ```
 
-Tools: `memory_add`, `memory_query`, `memory_validate`, `memory_status`, `memory_list`, `memory_delete`
+Or use the one-liner: `am claude-setup` (auto-generates `.mcp.json` + adds memory protocol to `CLAUDE.md`)
+
+Once configured, your AI agent gets these tools: `memory_add`, `memory_query`, `memory_validate`, `memory_status`, `memory_list`, `memory_delete`
 
 ## REST API
 
