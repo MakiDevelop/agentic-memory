@@ -4,7 +4,7 @@
 [![CI](https://github.com/MakiDevelop/agentic-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/MakiDevelop/agentic-memory/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> **`pip install memcite`**
+> **`pip install memcite`** → `from agentic_memory import Memory` → CLI: `am`
 
 Let your AI agent remember project settings — and know when they've changed.
 
