@@ -1,7 +1,6 @@
 """Core tests for agentic-memory."""
 
 import os
-import tempfile
 
 import pytest
 
