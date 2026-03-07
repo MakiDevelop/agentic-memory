@@ -10,6 +10,8 @@ from typing import Protocol, Sequence
 
 import numpy as np
 
+from agentic_memory.tokenizer import has_cjk, tokenize_for_fts
+
 
 class EmbeddingProvider(Protocol):
     """Abstract embedding interface for pluggable vector generation."""
@@ -155,6 +157,8 @@ class TFIDFEmbedding:
     def _tokenize(self, text: str) -> list[str]:
         if self.lowercase:
             text = text.lower()
+        if has_cjk(text):
+            text = tokenize_for_fts(text)
         return self._token_re.findall(text)
 
     def _ensure_fitted(self) -> None:

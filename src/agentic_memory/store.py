@@ -12,6 +12,7 @@ import numpy as np
 
 from agentic_memory.evidence import evidence_from_dict
 from agentic_memory.models import MemoryRecord, ValidationStatus
+from agentic_memory.tokenizer import tokenize_for_fts
 
 
 @dataclass(frozen=True)
@@ -54,29 +55,6 @@ class SQLiteStore:
                 tags_json TEXT DEFAULT '[]'
             );
 
-            CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-                content,
-                content='memories',
-                content_rowid='rowid'
-            );
-
-            CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-                INSERT INTO memories_fts(rowid, content)
-                VALUES (new.rowid, new.content);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, content)
-                VALUES ('delete', old.rowid, old.content);
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-                INSERT INTO memories_fts(memories_fts, rowid, content)
-                VALUES ('delete', old.rowid, old.content);
-                INSERT INTO memories_fts(rowid, content)
-                VALUES (new.rowid, new.content);
-            END;
-
             CREATE TABLE IF NOT EXISTS memory_embeddings (
                 memory_id TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
                 model_id TEXT NOT NULL,
@@ -92,11 +70,57 @@ class SQLiteStore:
                 state_blob BLOB NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
         """)
+
+        version = self._get_schema_version()
+        if version < 2:
+            self._upgrade_fts_v2()
+
         self._conn.commit()
+
+    def _get_schema_version(self) -> int:
+        try:
+            row = self._conn.execute("SELECT value FROM schema_meta WHERE key='version'").fetchone()
+            return int(row[0]) if row else 0
+        except sqlite3.OperationalError:
+            return 0
+
+    def _upgrade_fts_v2(self) -> None:
+        """Upgrade FTS5 to standalone table with CJK tokenization support."""
+        self._conn.executescript("""
+            DROP TRIGGER IF EXISTS memories_ai;
+            DROP TRIGGER IF EXISTS memories_ad;
+            DROP TRIGGER IF EXISTS memories_au;
+            DROP TABLE IF EXISTS memories_fts;
+            CREATE VIRTUAL TABLE memories_fts USING fts5(content);
+        """)
+
+        rows = self._conn.execute("SELECT rowid, content FROM memories").fetchall()
+        for row in rows:
+            tokenized = tokenize_for_fts(row[1])
+            self._conn.execute(
+                "INSERT INTO memories_fts(rowid, content) VALUES (?, ?)",
+                (row[0], tokenized),
+            )
+
+        self._conn.execute(
+            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '2')"
+        )
 
     def save(self, record: MemoryRecord) -> None:
         """Insert or update a memory record."""
+        # Remove old FTS5 entry if updating
+        existing = self._conn.execute(
+            "SELECT rowid FROM memories WHERE id = ?", (record.id,)
+        ).fetchone()
+        if existing:
+            self._conn.execute("DELETE FROM memories_fts WHERE rowid = ?", (existing[0],))
+
         self._conn.execute(
             """INSERT OR REPLACE INTO memories
                (id, content, evidence_json, created_at, updated_at,
@@ -114,6 +138,17 @@ class SQLiteStore:
                 json.dumps(record.tags),
             ),
         )
+
+        # Insert tokenized content into FTS5
+        row = self._conn.execute(
+            "SELECT rowid FROM memories WHERE id = ?", (record.id,)
+        ).fetchone()
+        tokenized = tokenize_for_fts(record.content)
+        self._conn.execute(
+            "INSERT INTO memories_fts(rowid, content) VALUES (?, ?)",
+            (row[0], tokenized),
+        )
+
         self._conn.commit()
 
     def get(self, memory_id: str) -> MemoryRecord | None:
@@ -124,9 +159,10 @@ class SQLiteStore:
         return self._row_to_record(row)
 
     def search(self, query: str, limit: int = 10) -> list[MemoryRecord]:
-        """Full-text search for memories."""
+        """Full-text search for memories. Tokenizes CJK text automatically."""
+        tokenized = tokenize_for_fts(query)
         # Quote each token to prevent FTS5 interpreting special chars as operators
-        safe_query = " ".join(f'"{token}"' for token in query.split())
+        safe_query = " ".join(f'"{token}"' for token in tokenized.split())
         rows = self._conn.execute(
             """SELECT m.* FROM memories m
                JOIN memories_fts fts ON m.rowid = fts.rowid
@@ -146,9 +182,15 @@ class SQLiteStore:
 
     def delete(self, memory_id: str) -> bool:
         """Delete a memory by ID."""
-        cursor = self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        row = self._conn.execute(
+            "SELECT rowid FROM memories WHERE id = ?", (memory_id,)
+        ).fetchone()
+        if not row:
+            return False
+        self._conn.execute("DELETE FROM memories_fts WHERE rowid = ?", (row[0],))
+        self._conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         self._conn.commit()
-        return cursor.rowcount > 0
+        return True
 
     def update_validation(
         self, memory_id: str, status: ValidationStatus, message: str, confidence: float

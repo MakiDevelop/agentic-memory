@@ -40,6 +40,9 @@ embedding = [
     "sentence-transformers>=2.0",
 ]
 claude = []
+cjk = [
+    "jieba>=0.42",
+]
 
 [project.scripts]
 am = "agentic_memory.cli:main"
