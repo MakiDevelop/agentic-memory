@@ -4,11 +4,30 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+
 from agentic_memory.evidence import evidence_from_dict
 from agentic_memory.models import MemoryRecord, ValidationStatus
+
+
+@dataclass(frozen=True)
+class VectorSearchHit:
+    """A memory record with its vector similarity score."""
+
+    record: MemoryRecord
+    score: float
+
+
+def _serialize_vector(vector: np.ndarray) -> bytes:
+    return np.asarray(vector, dtype=np.float32).tobytes()
+
+
+def _deserialize_vector(blob: bytes, dim: int) -> np.ndarray:
+    return np.frombuffer(blob, dtype=np.float32).copy()
 
 
 class SQLiteStore:
@@ -57,6 +76,22 @@ class SQLiteStore:
                 INSERT INTO memories_fts(rowid, content)
                 VALUES (new.rowid, new.content);
             END;
+
+            CREATE TABLE IF NOT EXISTS memory_embeddings (
+                memory_id TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
+                model_id TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                vector_blob BLOB NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS embedding_provider_state (
+                provider_key TEXT PRIMARY KEY,
+                model_id TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                state_blob BLOB NOT NULL,
+                updated_at TEXT NOT NULL
+            );
         """)
         self._conn.commit()
 
@@ -127,6 +162,70 @@ class SQLiteStore:
             (status.value, message, confidence, datetime.now().isoformat(), memory_id),
         )
         self._conn.commit()
+
+    def save_embedding(self, memory_id: str, model_id: str, vector: np.ndarray) -> None:
+        """Store an embedding vector for a memory."""
+        dim = int(vector.shape[0])
+        self._conn.execute(
+            """INSERT OR REPLACE INTO memory_embeddings
+               (memory_id, model_id, dim, vector_blob, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (memory_id, model_id, dim, _serialize_vector(vector), datetime.now().isoformat()),
+        )
+        self._conn.commit()
+
+    def vector_search(
+        self, query_vector: np.ndarray, *, model_id: str, limit: int = 10
+    ) -> list[VectorSearchHit]:
+        """Brute-force cosine similarity search over stored embeddings."""
+        rows = self._conn.execute(
+            """SELECT m.*, e.dim, e.vector_blob
+               FROM memories m
+               JOIN memory_embeddings e ON m.id = e.memory_id
+               WHERE e.model_id = ?""",
+            (model_id,),
+        ).fetchall()
+
+        q = np.asarray(query_vector, dtype=np.float32)
+        q_norm = float(np.linalg.norm(q))
+        if q_norm == 0:
+            return []
+
+        hits: list[VectorSearchHit] = []
+        for row in rows:
+            vec = _deserialize_vector(row["vector_blob"], row["dim"])
+            denom = float(np.linalg.norm(vec)) * q_norm
+            score = float(np.dot(q, vec) / denom) if denom > 0 else 0.0
+            hits.append(VectorSearchHit(record=self._row_to_record(row), score=score))
+
+        hits.sort(key=lambda h: h.score, reverse=True)
+        return hits[:limit]
+
+    def save_provider_state(self, provider_key: str, model_id: str, dim: int, state: bytes) -> None:
+        """Persist embedding provider state (e.g., TF-IDF vocabulary)."""
+        self._conn.execute(
+            """INSERT OR REPLACE INTO embedding_provider_state
+               (provider_key, model_id, dim, state_blob, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (provider_key, model_id, dim, state, datetime.now().isoformat()),
+        )
+        self._conn.commit()
+
+    def load_provider_state(self, provider_key: str) -> bytes | None:
+        """Load persisted embedding provider state."""
+        row = self._conn.execute(
+            "SELECT state_blob FROM embedding_provider_state WHERE provider_key = ?",
+            (provider_key,),
+        ).fetchone()
+        return bytes(row["state_blob"]) if row else None
+
+    def has_embeddings(self, model_id: str) -> bool:
+        """Check if any embeddings exist for the given model."""
+        row = self._conn.execute(
+            "SELECT COUNT(*) as cnt FROM memory_embeddings WHERE model_id = ?",
+            (model_id,),
+        ).fetchone()
+        return row["cnt"] > 0
 
     def close(self) -> None:
         self._conn.close()

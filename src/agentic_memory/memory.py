@@ -6,13 +6,25 @@ import os
 from pathlib import Path
 
 from agentic_memory.admission import AdmissionController, AlwaysAdmit
+from agentic_memory.embedding import EmbeddingProvider
 from agentic_memory.evidence import Evidence, FileRef
 from agentic_memory.models import Citation, MemoryRecord, QueryResult, ValidationStatus
 from agentic_memory.store import SQLiteStore
 
 
+def _normalize_scores(items: list[tuple[str, float]]) -> dict[str, float]:
+    """Normalize scores to 0-1 range."""
+    if not items:
+        return {}
+    scores = [s for _, s in items]
+    lo, hi = min(scores), max(scores)
+    if hi <= lo:
+        return {k: 1.0 for k, _ in items}
+    return {k: (s - lo) / (hi - lo) for k, s in items}
+
+
 class Memory:
-    """Repository-scoped memory with citation enforcement.
+    """Repository-scoped memory with citation enforcement and hybrid search.
 
     Usage:
         mem = Memory("./my-project")
@@ -25,11 +37,52 @@ class Memory:
         repo_path: str | Path,
         db_name: str = ".agentic-memory.db",
         admission: AdmissionController | None = None,
+        embedding: EmbeddingProvider | None = None,
     ):
         self.repo_path = str(Path(repo_path).resolve())
         db_path = os.path.join(self.repo_path, db_name)
         self._store = SQLiteStore(db_path)
         self._admission = admission or AlwaysAdmit()
+        self._embedding = embedding
+        self._embedding_ready = False
+
+        # Try to restore embedding provider state
+        if self._embedding is not None:
+            self._try_restore_embedding()
+
+    def _try_restore_embedding(self) -> None:
+        """Try to restore embedding provider state from DB."""
+        if self._embedding is None:
+            return
+        state = self._store.load_provider_state("default")
+        if state is not None:
+            try:
+                self._embedding = type(self._embedding).loads(state)
+                self._embedding_ready = True
+            except Exception:
+                pass
+
+    def _fit_embedding(self) -> None:
+        """Fit embedding provider on all stored memories and persist state."""
+        if self._embedding is None:
+            return
+        all_records = self._store.list_all(limit=10000)
+        if not all_records:
+            return
+
+        texts = [r.content for r in all_records]
+        self._embedding.fit(texts)
+        self._embedding_ready = True
+
+        # Persist provider state
+        self._store.save_provider_state(
+            "default", self._embedding.model_id, self._embedding.dim, self._embedding.dumps()
+        )
+
+        # Compute and store embeddings for all records
+        vectors = self._embedding.embed_documents(texts)
+        for record, vector in zip(all_records, vectors):
+            self._store.save_embedding(record.id, self._embedding.model_id, vector)
 
     def add(
         self,
@@ -81,6 +134,11 @@ class Memory:
         record.validation_message = message
 
         self._store.save(record)
+
+        # Re-fit embedding (TF-IDF vocab changes with new documents)
+        if self._embedding is not None:
+            self._fit_embedding()
+
         return record
 
     def query(
@@ -89,20 +147,61 @@ class Memory:
         limit: int = 5,
         validate: bool = True,
         include_stale: bool = True,
+        *,
+        fts_weight: float = 0.65,
+        vector_weight: float = 0.35,
     ) -> QueryResult:
-        """Query memories with automatic citation validation.
+        """Query memories with hybrid search and automatic citation validation.
+
+        Combines FTS5 full-text search with vector similarity when an embedding
+        provider is configured. Results are ranked using weighted score fusion.
 
         Args:
             query: Search query string.
             limit: Maximum number of memories to return.
             validate: Whether to re-validate citations before returning.
             include_stale: Whether to include stale/invalid memories in results.
+            fts_weight: Weight for FTS5 scores in hybrid ranking (default: 0.65).
+            vector_weight: Weight for vector scores in hybrid ranking (default: 0.35).
 
         Returns:
             QueryResult with answer, citations, and confidence.
         """
-        records = self._store.search(query, limit=limit)
+        fetch_limit = max(limit * 3, 20)
 
+        # FTS5 search
+        fts_records = self._store.search(query, limit=fetch_limit)
+        fts_scores = _normalize_scores(
+            [(r.id, 1.0 / (idx + 1)) for idx, r in enumerate(fts_records)]
+        )
+
+        # Vector search (if embedding provider is available and fitted)
+        vector_scores: dict[str, float] = {}
+        vector_records: dict[str, MemoryRecord] = {}
+        if self._embedding is not None and self._embedding_ready:
+            query_vec = self._embedding.embed_query(query)
+            hits = self._store.vector_search(
+                query_vec, model_id=self._embedding.model_id, limit=fetch_limit
+            )
+            vector_scores = _normalize_scores([(h.record.id, h.score) for h in hits])
+            vector_records = {h.record.id: h.record for h in hits}
+
+        # Merge results
+        merged: dict[str, MemoryRecord] = {r.id: r for r in fts_records}
+        merged.update(vector_records)
+
+        # Score fusion
+        scored: list[tuple[MemoryRecord, float]] = []
+        for memory_id, record in merged.items():
+            fs = fts_scores.get(memory_id, 0.0)
+            vs = vector_scores.get(memory_id, 0.0)
+            hybrid = (fts_weight * fs) + (vector_weight * vs)
+            scored.append((record, hybrid))
+
+        scored.sort(key=lambda item: item[1], reverse=True)
+        records = [r for r, _ in scored[:limit]]
+
+        # Validation
         if validate:
             for record in records:
                 status, message = record.evidence.validate(self.repo_path)
