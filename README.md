@@ -312,6 +312,15 @@ am validate --exit-code  # exits non-zero if any memory is INVALID
 | Retrieval logging | No | No | No | **Yes** |
 | Self-hosted | Yes | Yes | Yes | Yes |
 
+## Built with
+
+This project was built using a four-in-one AI collaboration model:
+
+- **[Maki](https://github.com/MakiDevelop)** — Product direction, architecture decisions, testing, final review
+- **Claude (Opus 4.6)** — Implementation, code review, documentation
+- **Codex (o4-mini)** — Engineering review, bug detection, test validation
+- **Gemini (2.5 Pro)** — Architecture analysis, strategy, gap analysis
+
 ## License
 
 MIT
