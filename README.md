@@ -6,6 +6,10 @@
 
 Open-source repo memory for AI agents — every memory has a source, every source gets verified.
 
+> **Package name on PyPI: [`memcite`](https://pypi.org/project/memcite/)**
+
+Designed for coding agents, code review agents, and CLI tools that work on a single repository at a time.
+
 ## Why
 
 AI agents forget everything between sessions. Existing memory layers (mem0, Zep, LangMem) store text in vector DBs but can't tell you *where* that knowledge came from or whether it's still true.
@@ -59,6 +63,7 @@ stale = mem.validate()
 - **Citation-backed** — every memory traces back to a verifiable source
 - **Auto-validation** — stale evidence is detected before it misleads your agent
 - **Confidence scoring** — memories with invalid citations get deprioritized
+- **Copilot-inspired design** — repository-scoped memories with evidence and decay, inspired by GitHub's agentic memory architecture
 - **CLI included** — `am add`, `am query`, `am validate`, `am status`
 
 ## Installation
@@ -167,6 +172,33 @@ def my_llm(system: str, user: str) -> str:
 mem = Memory("./my-project", admission=LLMAdmissionController(llm_callable=my_llm))
 ```
 
+## Real-world Workflows
+
+**PR reviewer agent** — remember repo conventions and enforce them automatically:
+```python
+mem.add(
+    "Logging must use structlog, not stdlib logging",
+    evidence=FileRef("docs/conventions.md", lines=(10, 15)),
+)
+
+# In your review pipeline
+result = mem.query("What logging library should this project use?")
+# → "structlog" with citation pointing to docs/conventions.md
+```
+
+**Coding agent** — look up project config with verifiable sources:
+```python
+result = mem.query("What env vars does this service need?")
+# → Returns memories citing .env.example with current validation status
+# If .env.example was deleted or changed, the memory is flagged as STALE
+```
+
+**CI pipeline** — catch drifted knowledge before it causes damage:
+```bash
+# Add to your CI workflow
+am validate --exit-code  # exits non-zero if any memory is INVALID
+```
+
 ## Roadmap
 
 - [x] Core SDK — add / query / validate with citation enforcement
@@ -175,6 +207,7 @@ mem = Memory("./my-project", admission=LLMAdmissionController(llm_callable=my_ll
 - [x] Admission control — LLM-based scoring to filter low-value memories
 - [x] Hybrid search — FTS5 + TF-IDF vector fusion, pluggable embedding providers
 - [x] REST API server — FastAPI with OpenAPI docs
+- [ ] GitHub App / GitLab integration (webhook + comment bot)
 - [ ] LangChain / LlamaIndex integration
 - [ ] Web dashboard
 
