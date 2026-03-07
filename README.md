@@ -68,6 +68,8 @@ stale = mem.validate()
 
 ## Installation
 
+> **Status: Alpha but usable** — core features are stable, API may evolve.
+
 ```bash
 pip install memcite
 ```
