@@ -4,9 +4,15 @@
 [![CI](https://github.com/MakiDevelop/agentic-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/MakiDevelop/agentic-memory/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+[English](#the-problem) | [中文](#問題)
+
 > **`pip install memcite`** → `from agentic_memory import Memory` → CLI: `am`
 
 Open-source repo memory for AI agents. Every memory has a source, every source gets verified.
+
+開源的 repo 記憶系統。每條記憶都有來源，每個來源都會被驗證。
+
+---
 
 ## The problem
 
@@ -73,17 +79,14 @@ print(f"Adoption rate: {metrics.adoption_rate:.0%}")
 
 ## Tested on real projects
 
-We deployed memcite across 5 projects of different types to validate the design:
+We deployed memcite across 4 projects of different types to validate the design:
 
 | Project | Type | Memories | Kind distribution | What memcite guards |
 |---------|------|----------|-------------------|---------------------|
 | mk-brain | AI knowledge pipeline | 6 | fact | Architecture — detect drift when code changes |
 | momo-home-ai | Home AI assistant | 8 | fact | Config — found real bugs from stale settings |
-| abd-ai-hub | Company monorepo | 6 | rule/antipattern/decision | **Governance rules** — CLAUDE.md as evidence |
 | dl-pilot | Download manager | 5 | fact | Platform config and file paths |
 | geo-checker | GEO tool | 4 | fact | Deployment settings |
-
-**Key discovery:** abd-ai-hub uses `CLAUDE.md` as evidence source for deployment rules. When someone edits `CLAUDE.md`, rule memories are immediately flagged stale — the agent knows governance changed before acting on outdated rules. This is memcite acting as a **constitutional review mechanism** for AI agents.
 
 ### Benchmark numbers
 
@@ -290,5 +293,131 @@ This project was built using a four-in-one AI collaboration model:
 - **Gemini (2.5 Pro)** — Architecture analysis, strategy, gap analysis
 
 ## License
+
+MIT
+
+---
+
+# 中文
+
+## 問題
+
+你的 AI agent 記住了「這個專案用 Jest 測試」。兩週後有人換成 Vitest，agent 不知道，繼續寫 Jest 測試，CI 直接炸掉。
+
+這不是幻覺 — 記憶*曾經*是對的。這是**過期記憶（stale memory）**，比幻覺更危險，因為 agent 對它深信不疑。
+
+## 解法
+
+memcite 強制每條記憶都要引用來源。使用記憶前會先檢查：**來源還是一樣的嗎？**
+
+```bash
+am add "使用 ruff 做 linting, line-length=120" --file pyproject.toml --lines 15-20
+am query "linting"
+# → ✓ 使用 ruff 做 linting, line-length=120
+#     pyproject.toml L15-20 [valid]
+
+# 有人改了 pyproject.toml → memcite 偵測到：
+am validate
+# → ⚠ 1 條記憶過期（證據已變更）
+```
+
+## 快速開始（5 分鐘）
+
+```bash
+pip install memcite
+cd your-project
+```
+
+```python
+from agentic_memory import Memory, FileRef, ManualRef
+
+mem = Memory(".")
+
+# 1. 儲存記憶並附上證據
+mem.add(
+    "本專案使用 ruff 做 linting, line-length=120",
+    evidence=FileRef("pyproject.toml", lines=(15, 20)),
+)
+
+# 2. 儲存規則並設定重要度
+mem.add(
+    "禁止 force-push 到 main",
+    evidence=ManualRef("團隊慣例"),
+    kind="rule",
+    importance=3,
+)
+
+# 3. 查詢 — 引用自動重新驗證
+result = mem.query("這個專案用什麼 linter？")
+print(result.memories[0].content)        # "ruff with line-length=120"
+print(result.citations[0].status.value)  # "valid" 或 "stale"
+
+# 4. Agent-ready 的上下文字串（直接塞進 prompt）
+context = mem.search_context("coding standards", kind="rule", min_importance=2)
+
+# 5. 追蹤 agent 實際使用了哪些記憶
+mem.mark_adopted(result.memories[0].id, agent_name="claude")
+
+# 6. 系統健康度
+metrics = mem.eval_metrics()
+print(f"採用率: {metrics.adoption_rate:.0%}")
+```
+
+## 設計原則
+
+1. **沒有證據就沒有記憶** — `add()` 不附引用會直接報錯
+2. **使用前先驗證** — `query()` 預設會重新檢查引用
+3. **過期就衰減** — 證據變更時信心分數下降，無效記憶被降權
+
+## 證據類型
+
+| 類型 | 追蹤什麼 | 驗證方式 |
+|------|---------|---------|
+| `FileRef` | 檔案路徑 + 行範圍 + 內容快照 | 內容比對 + 行號偏移時模糊重定位 |
+| `GitCommitRef` | Commit SHA + 檔案 | 驗證 commit 是否存在於歷史 |
+| `URLRef` | 網頁 URL | HTTP HEAD 檢查 + 內容雜湊 |
+| `ManualRef` | 人工備註 | 不自動驗證（永遠信任） |
+
+## 功能
+
+**核心**
+- **Repo 範圍** — 每個 repo 有獨立的記憶命名空間
+- **本地優先** — SQLite 儲存，不需要外部服務
+- **引用驅動** — 每條記憶都可追溯到可驗證的來源
+- **自動驗證** — 在 agent 被誤導前偵測過期證據
+- **信心評分** — 引用失效的記憶會被降權
+- **內容快照 + 模糊重定位** — 行號偏移時自動找到內容搬到哪裡
+
+**Agentic**
+- **記憶分類** — `fact`、`rule`、`antipattern`、`preference`、`decision`
+- **重要度評分** — 0-3 優先級，查詢結果依重要度排序
+- **TTL / 過期** — 臨時記憶自動過期
+- **去重** — 靠雜湊偵測重複內容
+- **衝突偵測** — 新記憶與既有記憶矛盾時發出警告
+- **採用追蹤** — `mark_adopted()` 測量 agent 實際用了哪些記憶
+
+**基礎設施**
+- **查詢日誌** — 每次查詢記錄 ID、數量、延遲
+- **評估指標** — 採用率、查詢統計、健康度指標
+- **壓縮** — 批次清理過期記憶
+- **CLI** — `am add`、`am query`、`am validate`、`am status`、`am list`
+- **MCP Server** — 10 個工具，支援 Claude Code / Cursor
+- **REST API** — FastAPI + OpenAPI 文件
+
+## 與其他方案比較
+
+| | mem0 | Zep | LangMem | **memcite** |
+|---|---|---|---|---|
+| 向量搜尋 | Yes | Yes | Yes | Yes |
+| 強制引用 | No | No | No | **Yes** |
+| 來源驗證 | No | No | No | **Yes** |
+| 過期偵測 | No | No | No | **Yes** |
+| Repo 範圍 | No | No | No | **Yes** |
+| 記憶分類 | No | No | No | **Yes** |
+| 衝突偵測 | No | No | No | **Yes** |
+| 採用追蹤 | No | No | No | **Yes** |
+| 自架部署 | Yes | Yes | Yes | Yes |
+
+## 授權
 
 MIT
