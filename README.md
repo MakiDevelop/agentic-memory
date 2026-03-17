@@ -106,6 +106,95 @@ In v0.4, inserting a single line in a file caused **all 4 FileRef memories** poi
 
 If a memory's **content is wrong but the evidence file hasn't changed**, memcite will report it as valid with full confidence. memcite validates that evidence hasn't drifted — it does not verify that the memory accurately describes the evidence. Content-level validation requires an optional `ContentValidator` (keyword overlap or LLM-based).
 
+## Use Cases
+
+### 1. CI Guardian — prevent stale knowledge from breaking builds
+
+Your agent writes Jest tests because it remembers "this project uses Jest." Someone migrated to Vitest last week. With memcite, the memory cites `package.json` — and when the file changes, the citation goes stale. The agent sees the warning and checks the file before writing tests.
+
+```bash
+am validate --exit-code  # non-zero if any citation is INVALID → fail CI
+```
+
+### 2. Onboarding accelerator — repo knowledge that stays current
+
+New team member asks "how do I run tests?" The agent queries memcite and returns answers **with validated citations** — not outdated wiki pages. If the test config changed since the memory was stored, the agent knows to re-read the file instead of confidently giving wrong instructions.
+
+```python
+context = mem.search_context("how to run tests", kind="fact")
+# → Returns only memories whose citations are still valid
+```
+
+### 3. Multi-agent coordination — shared memory with trust scores
+
+Multiple agents (code review bot, CI bot, doc generator) share a memcite database. Each agent's contributions are tracked via `mark_adopted()`. When one agent updates a memory, others see the fresh citation on their next query.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   Your AI Agent                     │
+│              (Claude / GPT / Cursor)                │
+└──────────┬──────────────────────┬───────────────────┘
+           │ query / add          │ MCP / REST / CLI
+           ▼                      ▼
+┌─────────────────────────────────────────────────────┐
+│                    memcite Core                     │
+│  ┌───────────┐  ┌──────────┐  ┌──────────────────┐ │
+│  │  Memory    │  │ Evidence │  │ Hybrid Search    │ │
+│  │  Manager   │→ │ Validator│  │ FTS5 + TF-IDF   │ │
+│  └───────────┘  └────┬─────┘  └──────────────────┘ │
+│                      │                              │
+│  ┌───────────┐  ┌────▼─────┐  ┌──────────────────┐ │
+│  │ Admission │  │ Citation │  │ Adoption         │ │
+│  │ Control   │  │ Store    │  │ Tracker          │ │
+│  └───────────┘  └──────────┘  └──────────────────┘ │
+└──────────┬──────────────────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────────────────┐
+│              SQLite + FTS5 (local file)             │
+│                .agentic-memory.db                   │
+└─────────────────────────────────────────────────────┘
+           │
+     Evidence Sources
+     ├── FileRef    → local files (content snapshot + line tracking)
+     ├── GitCommitRef → git history
+     ├── URLRef     → web pages (HTTP HEAD + content hash)
+     └── ManualRef  → human notes (always trusted)
+```
+
+## Example Workflow
+
+A typical agent loop with memcite:
+
+```
+1. Agent receives task: "Add a linting step to CI"
+
+2. Agent queries memcite:
+   am query "linting configuration"
+   → ✓ "Uses ruff, line-length=120"  [valid, pyproject.toml L1-3]
+
+3. Agent uses the validated memory to write correct CI config
+
+4. Agent stores what it learned:
+   am add "CI uses GitHub Actions" --file .github/workflows/ci.yml --lines 1-5
+
+5. Next week: someone changes the linting config
+   am validate
+   → ⚠ "Uses ruff, line-length=120" is STALE (pyproject.toml changed)
+
+6. Agent sees the stale warning → re-reads the file → gets current config
+```
+
+**Try it yourself:**
+
+```bash
+python examples/demo.py
+```
+
+The demo creates a temp project, stores cited memories, modifies the source file, and shows memcite detecting the staleness — all in 5 seconds.
+
 ## Design Principles
 
 1. **No Evidence, No Memory** — `add()` without a citation raises an error
@@ -362,6 +451,90 @@ mem.mark_adopted(result.memories[0].id, agent_name="claude")
 metrics = mem.eval_metrics()
 print(f"採用率: {metrics.adoption_rate:.0%}")
 ```
+
+## 使用場景
+
+### 1. CI 守門員 — 防止過期知識搞壞 build
+
+Agent 記得「這專案用 Jest」，但上週有人換成 Vitest。memcite 的記憶引用了 `package.json`，檔案一改，引用就變 stale。Agent 看到警告就會先去讀檔，不會傻傻繼續寫 Jest。
+
+```bash
+am validate --exit-code  # 有 INVALID 就回傳非零 → CI 直接擋
+```
+
+### 2. 新人加速器 — 永遠是最新的 repo 知識
+
+新人問「怎麼跑測試？」，agent 從 memcite 查出答案 **附帶已驗證的引用**。如果測試設定改過了，agent 知道要重新讀檔，不會自信地給出過時的指令。
+
+### 3. 多 Agent 協作 — 共享記憶 + 信任評分
+
+多個 agent（code review bot、CI bot、文件產生器）共用同一個 memcite 資料庫。每個 agent 的使用記錄透過 `mark_adopted()` 追蹤。一個 agent 更新記憶後，其他 agent 下次查詢就會看到最新引用。
+
+## 架構
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   你的 AI Agent                     │
+│              (Claude / GPT / Cursor)                │
+└──────────┬──────────────────────┬───────────────────┘
+           │ query / add          │ MCP / REST / CLI
+           ▼                      ▼
+┌─────────────────────────────────────────────────────┐
+│                    memcite 核心                     │
+│  ┌───────────┐  ┌──────────┐  ┌──────────────────┐ │
+│  │  Memory    │  │ Evidence │  │ Hybrid Search    │ │
+│  │  Manager   │→ │ Validator│  │ FTS5 + TF-IDF   │ │
+│  └───────────┘  └────┬─────┘  └──────────────────┘ │
+│                      │                              │
+│  ┌───────────┐  ┌────▼─────┐  ┌──────────────────┐ │
+│  │ Admission │  │ Citation │  │ Adoption         │ │
+│  │ Control   │  │ Store    │  │ Tracker          │ │
+│  └───────────┘  └──────────┘  └──────────────────┘ │
+└──────────┬──────────────────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────────────────┐
+│              SQLite + FTS5（本地檔案）                │
+│                .agentic-memory.db                   │
+└─────────────────────────────────────────────────────┘
+           │
+     證據來源
+     ├── FileRef       → 本地檔案（內容快照 + 行號追蹤）
+     ├── GitCommitRef  → git 歷史
+     ├── URLRef        → 網頁（HTTP HEAD + 內容雜湊）
+     └── ManualRef     → 人工備註（永遠信任）
+```
+
+## 範例流程
+
+一個典型的 agent 搭配 memcite 的工作循環：
+
+```
+1. Agent 收到任務：「在 CI 加入 linting 步驟」
+
+2. Agent 查詢 memcite：
+   am query "linting configuration"
+   → ✓ "使用 ruff, line-length=120"  [valid, pyproject.toml L1-3]
+
+3. Agent 用驗證過的記憶寫出正確的 CI 設定
+
+4. Agent 儲存學到的東西：
+   am add "CI 使用 GitHub Actions" --file .github/workflows/ci.yml --lines 1-5
+
+5. 下週有人改了 linting 設定：
+   am validate
+   → ⚠ "使用 ruff, line-length=120" 已過期（pyproject.toml 變了）
+
+6. Agent 看到過期警告 → 重新讀檔 → 拿到最新設定
+```
+
+**自己試試看：**
+
+```bash
+python examples/demo.py
+```
+
+Demo 會建立暫存專案、儲存有引用的記憶、修改來源檔案、展示 memcite 如何偵測過期 — 全程 5 秒。
 
 ## 設計原則
 
