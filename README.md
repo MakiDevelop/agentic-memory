@@ -152,34 +152,19 @@ If a memory's **content is wrong but the evidence file hasn't changed**, memcite
 
 ## Example Workflow
 
-A typical agent loop with memcite:
-
 ```
-1. Agent receives task: "Add a linting step to CI"
-
-2. Agent queries memcite:
-   am query "linting configuration"
-   → ✓ "Uses ruff, line-length=120"  [valid, pyproject.toml L1-3]
-
-3. Agent uses the validated memory to write correct CI config
-
-4. Agent stores what it learned:
-   am add "CI uses GitHub Actions" --file .github/workflows/ci.yml --lines 1-5
-
-5. Next week: someone changes the linting config
-   am validate
-   → ⚠ "Uses ruff, line-length=120" is STALE (pyproject.toml changed)
-
-6. Agent sees the stale warning → re-reads the file → gets current config
+1. Agent receives a new issue or task
+2. Retrieves historical context from memory (with citation validation)
+3. Analyzes related code and past decisions — stale memories are flagged
+4. Suggests resolution or PR changes based on verified context
+5. Updates memory with new findings, citing the source files
 ```
 
-**Try it yourself:**
+**Try it yourself** — the interactive demo walks through this flow in 5 seconds:
 
 ```bash
 python examples/demo.py
 ```
-
-The demo creates a temp project, stores cited memories, modifies the source file, and shows memcite detecting the staleness — all in 5 seconds.
 
 ## Design Principles
 
@@ -486,34 +471,19 @@ print(f"採用率: {metrics.adoption_rate:.0%}")
 
 ## 範例流程
 
-一個典型的 agent 搭配 memcite 的工作循環：
-
 ```
-1. Agent 收到任務：「在 CI 加入 linting 步驟」
-
-2. Agent 查詢 memcite：
-   am query "linting configuration"
-   → ✓ "使用 ruff, line-length=120"  [valid, pyproject.toml L1-3]
-
-3. Agent 用驗證過的記憶寫出正確的 CI 設定
-
-4. Agent 儲存學到的東西：
-   am add "CI 使用 GitHub Actions" --file .github/workflows/ci.yml --lines 1-5
-
-5. 下週有人改了 linting 設定：
-   am validate
-   → ⚠ "使用 ruff, line-length=120" 已過期（pyproject.toml 變了）
-
-6. Agent 看到過期警告 → 重新讀檔 → 拿到最新設定
+1. Agent 收到新的 issue 或任務
+2. 從記憶中取得歷史上下文（引用同步驗證）
+3. 分析相關程式碼與過去的決策 — 過期記憶會被標記
+4. 基於已驗證的上下文，建議修復方案或 PR 變更
+5. 將新發現寫入記憶，引用來源檔案
 ```
 
-**自己試試看：**
+**自己試試看** — 互動 demo 5 秒跑完整個流程：
 
 ```bash
 python examples/demo.py
 ```
-
-Demo 會建立暫存專案、儲存有引用的記憶、修改來源檔案、展示 memcite 如何偵測過期 — 全程 5 秒。
 
 ## 設計原則
 
