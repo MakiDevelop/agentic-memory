@@ -8,6 +8,8 @@
 
 > **`pip install memcite`** → `from agentic_memory import Memory` → CLI: `am`
 
+**Agentic Memory is an infrastructure layer for AI-assisted software maintenance, enabling agents to retain context across development workflows.**
+
 Open-source repo memory for AI agents. Every memory has a source, every source gets verified.
 
 開源的 repo 記憶系統。每條記憶都有來源，每個來源都會被驗證。
@@ -108,13 +110,10 @@ If a memory's **content is wrong but the evidence file hasn't changed**, memcite
 
 ## Use Cases
 
-- **AI-assisted pull request review** — The review agent remembers past decisions ("we chose X over Y because...") with citations to the original discussion. When the codebase evolves, stale decisions are flagged so the agent doesn't enforce outdated rules.
-
-- **Automated issue triaging** — A triage bot stores patterns like "errors in `/api/auth` usually relate to token expiration" with evidence from recent incident reports. When the auth module is refactored, memcite flags the pattern as stale before it misdirects the next bug report.
-
-- **Developer workflow automation** — CI pipelines, deployment scripts, reporting bots — they all carry assumptions about your repo. memcite gives each assumption a citation. When `pyproject.toml` or `Dockerfile` changes, your automation knows before it breaks.
-
-- **Multi-agent coordination** — Multiple agents (code review, CI, doc generator) share one memcite database. Each agent's usage is tracked via `mark_adopted()`. One agent updates a memory → others see the fresh citation on their next query. No more agents contradicting each other with outdated context.
+- **Automating issue triaging** with persistent contextual memory
+- **Assisting pull request review** using historical code understanding
+- **Maintaining developer workflows** through memory-aware agents
+- **Coordinating multi-agent maintenance tasks** across repositories
 
 ## Architecture
 
@@ -331,6 +330,10 @@ mem = Memory("./my-project", admission=HeuristicAdmissionController())
 mem.add("ok", evidence=ManualRef("chat"))  # raises ValueError — too vague
 ```
 
+## Scope
+
+This project focuses on the **memory and context layer** for AI-assisted maintenance. It does not aim to replace existing CI/CD platforms, code hosting, or agent frameworks — it plugs into them as the memory substrate.
+
 ## Roadmap
 
 - [x] Core SDK — add / query / validate with citation enforcement
@@ -441,13 +444,10 @@ print(f"採用率: {metrics.adoption_rate:.0%}")
 
 ## 使用場景
 
-- **AI 輔助 PR Review** — Review agent 記得過去的決策（「我們選 X 不選 Y，因為...」），並引用原始討論。當 codebase 演進，過時的決策會被標記，agent 不會繼續執行已經不適用的規則。
-
-- **自動 Issue 分流** — Triage bot 儲存模式（「`/api/auth` 的錯誤通常跟 token 過期有關」），並引用近期事故報告。當 auth 模組重構後，memcite 在下一個 bug report 被誤導之前就標記該模式已過期。
-
-- **開發流程自動化** — CI pipeline、部署腳本、報告機器人，都帶著對 repo 的假設。memcite 讓每個假設都有引用。當 `pyproject.toml` 或 `Dockerfile` 改了，你的自動化會在壞掉之前就知道。
-
-- **多 Agent 協作** — 多個 agent（code review、CI、文件產生器）共用一個 memcite 資料庫。每個 agent 的使用透過 `mark_adopted()` 追蹤。一個 agent 更新記憶，其他 agent 下次查詢就看到最新引用。不會再有 agent 拿過時的上下文互相矛盾。
+- **自動化 Issue 分流** — 透過持久化的上下文記憶
+- **輔助 PR Review** — 利用歷史程式碼理解
+- **維護開發流程** — 透過具備記憶的 agent
+- **跨 Repo 多 Agent 協作** — 協調維護任務
 
 ## 架構
 
