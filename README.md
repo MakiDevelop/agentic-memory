@@ -108,26 +108,13 @@ If a memory's **content is wrong but the evidence file hasn't changed**, memcite
 
 ## Use Cases
 
-### 1. CI Guardian — prevent stale knowledge from breaking builds
+- **AI-assisted pull request review** — The review agent remembers past decisions ("we chose X over Y because...") with citations to the original discussion. When the codebase evolves, stale decisions are flagged so the agent doesn't enforce outdated rules.
 
-Your agent writes Jest tests because it remembers "this project uses Jest." Someone migrated to Vitest last week. With memcite, the memory cites `package.json` — and when the file changes, the citation goes stale. The agent sees the warning and checks the file before writing tests.
+- **Automated issue triaging** — A triage bot stores patterns like "errors in `/api/auth` usually relate to token expiration" with evidence from recent incident reports. When the auth module is refactored, memcite flags the pattern as stale before it misdirects the next bug report.
 
-```bash
-am validate --exit-code  # non-zero if any citation is INVALID → fail CI
-```
+- **Developer workflow automation** — CI pipelines, deployment scripts, reporting bots — they all carry assumptions about your repo. memcite gives each assumption a citation. When `pyproject.toml` or `Dockerfile` changes, your automation knows before it breaks.
 
-### 2. Onboarding accelerator — repo knowledge that stays current
-
-New team member asks "how do I run tests?" The agent queries memcite and returns answers **with validated citations** — not outdated wiki pages. If the test config changed since the memory was stored, the agent knows to re-read the file instead of confidently giving wrong instructions.
-
-```python
-context = mem.search_context("how to run tests", kind="fact")
-# → Returns only memories whose citations are still valid
-```
-
-### 3. Multi-agent coordination — shared memory with trust scores
-
-Multiple agents (code review bot, CI bot, doc generator) share a memcite database. Each agent's contributions are tracked via `mark_adopted()`. When one agent updates a memory, others see the fresh citation on their next query.
+- **Multi-agent coordination** — Multiple agents (code review, CI, doc generator) share one memcite database. Each agent's usage is tracked via `mark_adopted()`. One agent updates a memory → others see the fresh citation on their next query. No more agents contradicting each other with outdated context.
 
 ## Architecture
 
@@ -454,21 +441,13 @@ print(f"採用率: {metrics.adoption_rate:.0%}")
 
 ## 使用場景
 
-### 1. CI 守門員 — 防止過期知識搞壞 build
+- **AI 輔助 PR Review** — Review agent 記得過去的決策（「我們選 X 不選 Y，因為...」），並引用原始討論。當 codebase 演進，過時的決策會被標記，agent 不會繼續執行已經不適用的規則。
 
-Agent 記得「這專案用 Jest」，但上週有人換成 Vitest。memcite 的記憶引用了 `package.json`，檔案一改，引用就變 stale。Agent 看到警告就會先去讀檔，不會傻傻繼續寫 Jest。
+- **自動 Issue 分流** — Triage bot 儲存模式（「`/api/auth` 的錯誤通常跟 token 過期有關」），並引用近期事故報告。當 auth 模組重構後，memcite 在下一個 bug report 被誤導之前就標記該模式已過期。
 
-```bash
-am validate --exit-code  # 有 INVALID 就回傳非零 → CI 直接擋
-```
+- **開發流程自動化** — CI pipeline、部署腳本、報告機器人，都帶著對 repo 的假設。memcite 讓每個假設都有引用。當 `pyproject.toml` 或 `Dockerfile` 改了，你的自動化會在壞掉之前就知道。
 
-### 2. 新人加速器 — 永遠是最新的 repo 知識
-
-新人問「怎麼跑測試？」，agent 從 memcite 查出答案 **附帶已驗證的引用**。如果測試設定改過了，agent 知道要重新讀檔，不會自信地給出過時的指令。
-
-### 3. 多 Agent 協作 — 共享記憶 + 信任評分
-
-多個 agent（code review bot、CI bot、文件產生器）共用同一個 memcite 資料庫。每個 agent 的使用記錄透過 `mark_adopted()` 追蹤。一個 agent 更新記憶後，其他 agent 下次查詢就會看到最新引用。
+- **多 Agent 協作** — 多個 agent（code review、CI、文件產生器）共用一個 memcite 資料庫。每個 agent 的使用透過 `mark_adopted()` 追蹤。一個 agent 更新記憶，其他 agent 下次查詢就看到最新引用。不會再有 agent 拿過時的上下文互相矛盾。
 
 ## 架構
 
