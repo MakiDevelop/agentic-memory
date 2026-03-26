@@ -178,7 +178,7 @@ python examples/demo.py
 |------|---------------|-------------------|
 | `FileRef` | File path + line range + content snapshot | Content match + fuzzy relocation when lines shift |
 | `GitCommitRef` | Commit SHA + file | Verify commit exists in history |
-| `URLRef` | Web URL | HTTP HEAD check + content hash |
+| `URLRef` | Web URL | HTTP HEAD reachability check |
 | `ManualRef` | Human-provided note | No auto-validation (always trusted) |
 
 ## Features
@@ -235,7 +235,7 @@ am query "coding rules" --kind rule --min-importance 2
 
 # Validate + CI integration
 am validate                # check all citations
-am validate --exit-code    # exits non-zero if any INVALID (for CI)
+am validate --exit-code    # exits non-zero if any stale/invalid (for CI)
 
 # Watch git commits for memory-worthy changes
 am watch                   # analyze last 5 commits

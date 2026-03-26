@@ -160,10 +160,8 @@ def cmd_watch(args: argparse.Namespace) -> None:
             if mem is None:
                 mem = _get_memory(args.repo)
             try:
-                if s.commit_sha:
-                    evidence = GitCommitRef(sha=s.commit_sha, file_path=s.file_path)
-                else:
-                    evidence = FileRef(path=s.file_path, lines=s.lines)
+                # Always use FileRef for stale detection (content snapshot + fuzzy relocation)
+                evidence = FileRef(path=s.file_path, lines=s.lines)
                 record = mem.add(
                     s.content, evidence=evidence,
                     kind=s.kind, importance=s.importance,

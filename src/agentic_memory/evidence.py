@@ -253,6 +253,27 @@ class URLRef(Evidence):
         if not url_lower.startswith(("http://", "https://")):
             return ValidationStatus.INVALID, f"URL scheme not allowed (only http/https): {self.url}"
 
+        # Block private/loopback IPs to prevent SSRF
+        try:
+            from urllib.parse import urlparse
+            import ipaddress
+            import socket
+            hostname = urlparse(self.url).hostname or ""
+            # Resolve hostname to IP and check if private/loopback
+            try:
+                addr = ipaddress.ip_address(hostname)
+            except ValueError:
+                # It's a hostname, resolve it
+                try:
+                    resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                    addr = ipaddress.ip_address(resolved[0][4][0]) if resolved else None
+                except (socket.gaierror, OSError):
+                    addr = None
+            if addr and (addr.is_private or addr.is_loopback or addr.is_link_local):
+                return ValidationStatus.INVALID, f"URL targets private/loopback address: {hostname}"
+        except Exception:
+            pass  # If we can't check, proceed cautiously
+
         # URL validation is best-effort: just check reachability
         try:
             import urllib.request
