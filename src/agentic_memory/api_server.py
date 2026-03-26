@@ -82,8 +82,11 @@ class EvidenceRequest(BaseModel):
 
 class AddRequest(BaseModel):
     content: str
-    evidence: EvidenceRequest
+    evidence: EvidenceRequest | list[EvidenceRequest] = Field(description="Single evidence or list of evidence")
     tags: list[str] = Field(default_factory=list)
+    kind: str = Field(default="fact", description="Memory kind: fact, rule, antipattern, preference, decision")
+    importance: int = Field(default=1, ge=0, le=3, description="Importance 0-3")
+    ttl_seconds: int | None = Field(default=None, description="Time-to-live in seconds (null=permanent)")
 
 
 class QueryRequest(BaseModel):
@@ -93,6 +96,8 @@ class QueryRequest(BaseModel):
     limit: int = 5
     validate_citations: bool = Field(default=True, alias="validate")
     include_stale: bool = True
+    kind: str | None = Field(default=None, description="Filter by kind: fact, rule, antipattern, preference, decision")
+    min_importance: int = Field(default=0, ge=0, le=3, description="Minimum importance filter")
     fts_weight: float = 0.65
     vector_weight: float = 0.35
 
@@ -105,6 +110,8 @@ class MemoryResponse(BaseModel):
     validation_status: str
     validation_message: str
     tags: list[str]
+    kind: str = "fact"
+    importance: int = 1
 
 
 class QueryResponse(BaseModel):
@@ -119,6 +126,7 @@ class StatusResponse(BaseModel):
     stale: int
     invalid: int
     unchecked: int
+    expired: int = 0
 
 
 class ValidateResponse(BaseModel):
@@ -162,6 +170,8 @@ def _record_to_response(record: Any) -> MemoryResponse:
         validation_status=record.validation_status.value,
         validation_message=record.validation_message,
         tags=record.tags,
+        kind=record.kind.value,
+        importance=record.importance,
     )
 
 
@@ -172,9 +182,15 @@ def _record_to_response(record: Any) -> MemoryResponse:
 def add_memory(req: AddRequest):
     """Add a memory with required evidence citation."""
     mem = _get_memory()
-    evidence = _build_evidence(req.evidence)
+    if isinstance(req.evidence, list):
+        evidence = [_build_evidence(ev) for ev in req.evidence]
+    else:
+        evidence = _build_evidence(req.evidence)
     try:
-        record = mem.add(req.content, evidence=evidence, tags=req.tags)
+        record = mem.add(
+            req.content, evidence=evidence, tags=req.tags,
+            kind=req.kind, importance=req.importance, ttl_seconds=req.ttl_seconds,
+        )
         return _record_to_response(record)
     except TypeError as e:
         raise HTTPException(400, str(e))
@@ -186,14 +202,19 @@ def add_memory(req: AddRequest):
 def query_memories(req: QueryRequest):
     """Query memories with hybrid search and citation re-validation."""
     mem = _get_memory()
-    result = mem.query(
-        req.query,
-        limit=req.limit,
-        validate=req.validate_citations,
-        include_stale=req.include_stale,
-        fts_weight=req.fts_weight,
-        vector_weight=req.vector_weight,
-    )
+    try:
+        result = mem.query(
+            req.query,
+            limit=req.limit,
+            validate=req.validate_citations,
+            include_stale=req.include_stale,
+            kind=req.kind,
+            min_importance=req.min_importance,
+            fts_weight=req.fts_weight,
+            vector_weight=req.vector_weight,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     return QueryResponse(
         answer=result.answer,
         confidence=result.confidence,

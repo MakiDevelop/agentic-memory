@@ -39,6 +39,9 @@ api = [
 embedding = [
     "sentence-transformers>=2.0",
 ]
+langchain = [
+    "langchain-core>=0.2",
+]
 claude = []
 cjk = [
     "jieba>=0.42",

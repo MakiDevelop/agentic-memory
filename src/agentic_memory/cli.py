@@ -134,6 +134,53 @@ def cmd_claude_setup(args: argparse.Namespace) -> None:
     print("\nDone! Restart Claude Code to activate memory tools.")
 
 
+def cmd_watch(args: argparse.Namespace) -> None:
+    """Watch recent git commits and suggest memories."""
+    from agentic_memory.watcher import watch
+
+    suggestions = watch(args.repo or ".", commits=args.commits)
+    if not suggestions:
+        print("No memory-worthy changes found in recent commits.")
+        return
+
+    print(f"Found {len(suggestions)} suggested memories:\n")
+
+    mem = None
+    added = 0
+    for i, s in enumerate(suggestions, 1):
+        loc = f"{s.file_path}"
+        if s.lines:
+            loc += f" L{s.lines[0]}-{s.lines[1]}"
+        print(f"  {i}. [{s.kind}] {s.content}")
+        print(f"     {loc} | importance={s.importance}")
+        print(f"     reason: {s.reason}")
+        print()
+
+        if args.auto:
+            if mem is None:
+                mem = _get_memory(args.repo)
+            try:
+                if s.commit_sha:
+                    evidence = GitCommitRef(sha=s.commit_sha, file_path=s.file_path)
+                else:
+                    evidence = FileRef(path=s.file_path, lines=s.lines)
+                record = mem.add(
+                    s.content, evidence=evidence,
+                    kind=s.kind, importance=s.importance,
+                )
+                print(f"     → Added as {record.id}")
+                added += 1
+            except (TypeError, ValueError) as e:
+                print(f"     → Skipped: {e}")
+
+    if mem:
+        mem.close()
+    if args.auto and added > 0:
+        print(f"\nAuto-added {added} memories.")
+    elif not args.auto:
+        print("Run with --auto to automatically add these memories.")
+
+
 def cmd_list(args: argparse.Namespace) -> None:
     """List all memories."""
     mem = _get_memory(args.repo)
@@ -197,6 +244,11 @@ def main(argv: list[str] | None = None) -> None:
     # claude-setup
     sub.add_parser("claude-setup", help="Set up memcite for Claude Code (MCP config + CLAUDE.md)")
 
+    # watch
+    watch_p = sub.add_parser("watch", help="Analyze recent git commits and suggest memories")
+    watch_p.add_argument("--commits", type=int, default=5, help="Number of recent commits to analyze (default: 5)")
+    watch_p.add_argument("--auto", action="store_true", help="Automatically add suggested memories")
+
     # list
     list_p = sub.add_parser("list", help="List all memories")
     list_p.add_argument("--limit", type=int, default=50, help="Max results")
@@ -214,6 +266,7 @@ def main(argv: list[str] | None = None) -> None:
         "status": cmd_status,
         "list": cmd_list,
         "delete": cmd_delete,
+        "watch": cmd_watch,
         "claude-setup": cmd_claude_setup,
     }
     commands[args.command](args)

@@ -215,9 +215,10 @@ pip install memcite
 
 With extras:
 ```bash
-pip install memcite[mcp]     # MCP server for Claude Code
-pip install memcite[api]     # REST API server (FastAPI)
-pip install memcite[cjk]     # Chinese/Japanese/Korean tokenization
+pip install memcite[mcp]        # MCP server for Claude Code
+pip install memcite[api]        # REST API server (FastAPI)
+pip install memcite[langchain]  # LangChain retriever integration
+pip install memcite[cjk]        # Chinese/Japanese/Korean tokenization
 ```
 
 ## CLI
@@ -235,6 +236,11 @@ am query "coding rules" --kind rule --min-importance 2
 # Validate + CI integration
 am validate                # check all citations
 am validate --exit-code    # exits non-zero if any INVALID (for CI)
+
+# Watch git commits for memory-worthy changes
+am watch                   # analyze last 5 commits
+am watch --commits 10      # analyze last 10 commits
+am watch --auto            # auto-add suggested memories
 
 # Housekeeping
 am status
@@ -324,6 +330,22 @@ Default weights: FTS5 (0.65) + Vector (0.35). Customize per query:
 result = mem.query("linting", fts_weight=0.5, vector_weight=0.5)
 ```
 
+## LangChain Integration
+
+Use memcite as a LangChain retriever — every document comes with citation metadata:
+
+```python
+from agentic_memory.bridges.langchain import MemciteRetriever
+
+retriever = MemciteRetriever(repo_path="./my-project")
+docs = retriever.invoke("What linter does this project use?")
+
+for doc in docs:
+    print(doc.page_content)
+    print(f"  status: {doc.metadata['validation_status']}")
+    print(f"  evidence: {doc.metadata['evidence']}")
+```
+
 ## Admission Control
 
 Filter out low-value memories before they're stored:
@@ -351,8 +373,9 @@ This project focuses on the **memory and context layer** for AI-assisted mainten
 - [x] Adoption tracking — measure which memories agents actually use
 - [x] GitHub Action — CI memory linting with `am validate --exit-code`
 - [x] Path traversal protection — repo-scoped file access enforcement
-- [ ] Git Watch Mode — auto-suggest memories from commit diffs
-- [ ] LangChain / LlamaIndex integration
+- [x] Git Watch Mode — `am watch` analyzes commits and suggests memories
+- [x] LangChain integration — `MemciteRetriever` with citation metadata
+- [ ] LlamaIndex integration
 - [ ] Web dashboard
 
 ## Compared to
