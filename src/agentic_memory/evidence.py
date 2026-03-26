@@ -12,6 +12,14 @@ from typing import Any
 from agentic_memory.models import ValidationResult, ValidationStatus
 
 
+def _check_path_within_repo(full_path: str, repo_path: str) -> None:
+    """Ensure resolved path is within the repo directory. Raises ValueError on traversal."""
+    resolved = os.path.realpath(full_path)
+    repo_resolved = os.path.realpath(repo_path)
+    if not resolved.startswith(repo_resolved + os.sep) and resolved != repo_resolved:
+        raise ValueError(f"Path traversal denied: {full_path} is outside repo {repo_path}")
+
+
 class Evidence(ABC):
     """Base class for all evidence types."""
 
@@ -110,12 +118,17 @@ class FileRef(Evidence):
     def capture_hash(self, repo_path: str) -> None:
         """Capture current content hash and content snapshot for future validation."""
         full_path = os.path.join(repo_path, self.path)
+        _check_path_within_repo(full_path, repo_path)
         start, end = self.lines if self.lines else (None, None)
         self.content_hash = _file_content_hash(full_path, start, end)
         self.content_snapshot = _read_lines(full_path, start, end)
 
     def validate(self, repo_path: str) -> tuple[ValidationStatus, str]:
         full_path = os.path.join(repo_path, self.path)
+        try:
+            _check_path_within_repo(full_path, repo_path)
+        except ValueError as e:
+            return ValidationStatus.INVALID, str(e)
         if not os.path.exists(full_path):
             return ValidationStatus.INVALID, f"File not found: {self.path}"
 
@@ -235,6 +248,11 @@ class URLRef(Evidence):
     content_hash: str = field(default="", repr=False)
 
     def validate(self, repo_path: str) -> tuple[ValidationStatus, str]:
+        # Restrict to safe URL schemes (case-insensitive per RFC 3986)
+        url_lower = self.url.lower()
+        if not url_lower.startswith(("http://", "https://")):
+            return ValidationStatus.INVALID, f"URL scheme not allowed (only http/https): {self.url}"
+
         # URL validation is best-effort: just check reachability
         try:
             import urllib.request

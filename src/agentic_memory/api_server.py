@@ -8,20 +8,52 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from typing import Any
 
-import uvicorn
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+try:
+    import uvicorn
+    from fastapi import FastAPI, HTTPException
+    from pydantic import BaseModel, Field
+    _API_AVAILABLE = True
+except ImportError:
+    _API_AVAILABLE = False
+
+    # Stubs so class definitions don't crash at import time
+    class BaseModel:  # type: ignore[no-redef]
+        pass
+
+    def Field(**kw):  # type: ignore[no-redef]
+        return None
+
+    class HTTPException(Exception):  # type: ignore[no-redef]
+        def __init__(self, *a, **kw):
+            pass
+
+    class FastAPI:  # type: ignore[no-redef]
+        """Stub so @app.post()/@app.get() decorators don't crash at import time."""
+
+        def __init__(self, **kw):
+            pass
+
+        def _noop_decorator(self, *a, **kw):
+            def decorator(fn):
+                return fn
+            return decorator
+
+        post = get = delete = put = patch = _noop_decorator
 
 from agentic_memory.evidence import FileRef, GitCommitRef, ManualRef, URLRef
 from agentic_memory.memory import Memory
 
-app = FastAPI(
-    title="agentic-memory",
-    description="Repo memory for AI agents — every memory has a source, every source gets verified.",
-    version="0.1.0",
-)
+if _API_AVAILABLE:
+    app = FastAPI(
+        title="agentic-memory",
+        description="Repo memory for AI agents — every memory has a source, every source gets verified.",
+        version="0.7.2",
+    )
+else:
+    app = FastAPI()  # type: ignore[assignment]
 
 _memory: Memory | None = None
 
@@ -216,6 +248,10 @@ def memory_status():
 
 
 def main():
+    if not _API_AVAILABLE:
+        print("Error: API dependencies not installed. Run: pip install memcite[api]", file=sys.stderr)
+        sys.exit(1)
+
     parser = argparse.ArgumentParser(description="agentic-memory REST API server")
     parser.add_argument(
         "--repo", default=None, help="Repository path (default: cwd or AGENTIC_MEMORY_REPO env)"

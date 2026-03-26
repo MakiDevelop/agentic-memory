@@ -311,13 +311,19 @@ class Memory:
 
     def _validate_record(self, record: MemoryRecord) -> None:
         """Validate a single record: TTL + evidence check + optional content check."""
+        old_status = record.validation_status
+        old_message = record.validation_message
+        old_confidence = record.confidence
+        old_evidence_json = str([e.to_dict() for e in record.evidence_list])
+
         # TTL check
         if record.is_expired:
             record.validation_status = ValidationStatus.STALE
             record.validation_message = "Memory expired (TTL exceeded)"
             record.confidence = max(0.1, record.confidence * 0.5)
-            record.updated_at = datetime.now()
-            self._store.save(record)
+            if record.validation_status != old_status or record.confidence != old_confidence:
+                record.updated_at = datetime.now()
+                self._store.save(record)
             return
 
         evidence_items = record.evidence_list
@@ -352,9 +358,17 @@ class Memory:
         elif status == ValidationStatus.INVALID:
             record.confidence = 0.0
 
-        # Single write: update timestamp + persist relocated evidence
-        record.updated_at = datetime.now()
-        self._store.save(record)
+        # Only write if state actually changed (dirty check)
+        new_evidence_json = str([e.to_dict() for e in record.evidence_list])
+        changed = (
+            record.validation_status != old_status
+            or record.confidence != old_confidence
+            or record.validation_message != old_message
+            or new_evidence_json != old_evidence_json
+        )
+        if changed:
+            record.updated_at = datetime.now()
+            self._store.save(record)
 
     def validate(self) -> list[MemoryRecord]:
         """Validate all memories and return those that are stale or invalid."""

@@ -1,0 +1,61 @@
+name: "memcite — Memory Lint"
+description: "Validate AI agent memories. Detect stale citations before they mislead your agent."
+author: "MakiDevelop"
+
+branding:
+  icon: "check-circle"
+  color: "blue"
+
+inputs:
+  command:
+    description: "Command to run: validate, status"
+    required: false
+    default: "validate --exit-code"
+  repo-path:
+    description: "Path to the repository (default: current directory)"
+    required: false
+    default: "."
+  python-version:
+    description: "Python version to use"
+    required: false
+    default: "3.12"
+  memcite-version:
+    description: "memcite version to install (default: latest)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install memcite
+      shell: bash
+      env:
+        MEMCITE_VERSION: ${{ inputs.memcite-version }}
+      run: |
+        if [ -n "$MEMCITE_VERSION" ]; then
+          pip install "memcite==${MEMCITE_VERSION}"
+        else
+          pip install memcite
+        fi
+
+    - name: Run memcite
+      shell: bash
+      working-directory: ${{ inputs.repo-path }}
+      env:
+        MEMCITE_COMMAND: ${{ inputs.command }}
+      run: |
+        # Whitelist allowed commands to prevent shell injection
+        case "$MEMCITE_COMMAND" in
+          validate|"validate --exit-code"|status|list)
+            am $MEMCITE_COMMAND
+            ;;
+          *)
+            echo "Error: unsupported command '$MEMCITE_COMMAND'. Allowed: validate, validate --exit-code, status, list"
+            exit 1
+            ;;
+        esac

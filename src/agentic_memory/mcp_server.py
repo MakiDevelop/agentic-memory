@@ -10,8 +10,27 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+    _MCP_AVAILABLE = True
+except ImportError:
+    _MCP_AVAILABLE = False
+
+    class FastMCP:  # type: ignore[no-redef]
+        """Stub so @mcp.tool() decorators don't crash when mcp extra is not installed."""
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def tool(self):
+            def decorator(fn):
+                return fn
+            return decorator
+
+        def run(self, **kwargs):
+            pass
 
 from agentic_memory.evidence import FileRef, GitCommitRef, ManualRef, URLRef
 from agentic_memory.memory import Memory
@@ -338,6 +357,10 @@ def memory_delete(memory_id: str) -> str:
 
 
 def main():
+    if not _MCP_AVAILABLE:
+        print("Error: MCP dependencies not installed. Run: pip install memcite[mcp]", file=sys.stderr)
+        sys.exit(1)
+
     parser = argparse.ArgumentParser(description="agentic-memory MCP server")
     parser.add_argument(
         "--repo", default=None, help="Repository path (default: cwd or AGENTIC_MEMORY_REPO env)"

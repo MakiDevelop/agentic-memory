@@ -1,0 +1,20 @@
+# Example: Add this to your project's .github/workflows/memory-lint.yml
+# Validates agent memories on every PR — catches stale citations before they mislead your AI.
+
+name: Memory Lint
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  memory-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: MakiDevelop/agentic-memory@main
+        with:
+          command: "validate --exit-code"
