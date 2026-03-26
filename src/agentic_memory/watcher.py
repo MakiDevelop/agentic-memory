@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -37,9 +37,13 @@ _CONFIG_EXTENSIONS = {".toml", ".yaml", ".yml", ".json", ".cfg", ".ini", ".conf"
 _IMPORTANT_PATTERNS = [
     (re.compile(r'^\+.*["\']?version["\']?\s*[:=]', re.MULTILINE | re.IGNORECASE), "version bump", 2),
     (re.compile(r'^\+.*(?:dependencies|requires|deps)\b', re.MULTILINE | re.IGNORECASE), "dependency change", 2),
-    (re.compile(r'^\+.*["\']?(?:port|host|url|endpoint|base.?url)["\']?\s*[:=]', re.MULTILINE | re.IGNORECASE), "endpoint/config", 2),
+    (re.compile(
+        r'^\+.*["\']?(?:port|host|url|endpoint|base.?url)["\']?\s*[:=]', re.MULTILINE | re.IGNORECASE,
+    ), "endpoint/config", 2),
     (re.compile(r'^\+\s*(?:FROM\s+\S+:\S+|image:\s+\S+)', re.MULTILINE), "container image change", 2),
-    (re.compile(r'^\+.*(?:DROP|ALTER|CREATE)\s+(?:TABLE|INDEX|DATABASE)', re.MULTILINE | re.IGNORECASE), "schema change", 3),
+    (re.compile(
+        r'^\+.*(?:DROP|ALTER|CREATE)\s+(?:TABLE|INDEX|DATABASE)', re.MULTILINE | re.IGNORECASE,
+    ), "schema change", 3),
 ]
 
 
@@ -125,7 +129,7 @@ def _analyze_diff_for_file(file_path: str, diff_text: str) -> list[SuggestedMemo
         if kv_lines and not suggestions:
             # Summarize: take first few meaningful additions
             summary_lines = kv_lines[:3]
-            content_parts = [l[0].strip() for l in summary_lines]
+            content_parts = [entry[0].strip() for entry in summary_lines]
             start_line = summary_lines[0][1]
             end_line = summary_lines[-1][1]
             suggestions.append(SuggestedMemory(

@@ -50,7 +50,7 @@ if _API_AVAILABLE:
     app = FastAPI(
         title="agentic-memory",
         description="Repo memory for AI agents — every memory has a source, every source gets verified.",
-        version="0.7.2",
+        version="0.8.0",
     )
 else:
     app = FastAPI()  # type: ignore[assignment]
