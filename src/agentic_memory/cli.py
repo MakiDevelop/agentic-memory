@@ -62,14 +62,15 @@ def cmd_query(args: argparse.Namespace) -> None:
         print("No memories found.")
         return
 
-    for i, (memory, citation) in enumerate(zip(result.memories, result.citations), 1):
-        status_icon = {"valid": "✓", "stale": "⚠", "invalid": "✗", "unchecked": "?"}
-        icon = status_icon.get(citation.status.value, "?")
+    status_icon = {"valid": "✓", "stale": "⚠", "invalid": "✗", "unchecked": "?"}
+    for i, memory in enumerate(result.memories, 1):
+        icon = status_icon.get(memory.validation_status.value, "?")
         print(f"{i}. {memory.content}")
-        print(f"   {icon} {citation.evidence.short_label()} [{citation.status.value}]")
+        for evidence in memory.evidence_list:
+            print(f"   {icon} {evidence.short_label()} [{memory.validation_status.value}]")
         print(f"   confidence: {memory.confidence:.1f} | kind: {memory.kind.value} | importance: {memory.importance}")
-        if citation.message:
-            print(f"   {citation.message}")
+        if memory.validation_message:
+            print(f"   {memory.validation_message}")
         print()
 
 

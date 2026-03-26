@@ -184,15 +184,16 @@ def memory_query(
 
     status_icons = {"valid": "VALID", "stale": "STALE", "invalid": "INVALID", "unchecked": "UNCHECKED"}
     lines = []
-    for i, (memory, citation) in enumerate(zip(result.memories, result.citations), 1):
-        icon = status_icons.get(citation.status.value, "?")
+    for i, memory in enumerate(result.memories, 1):
+        icon = status_icons.get(memory.validation_status.value, "?")
+        evidence_labels = ", ".join(e.short_label() for e in memory.evidence_list)
         lines.append(
             f"{i}. {memory.content}\n"
-            f"   [{icon}] {citation.evidence.short_label()}\n"
+            f"   [{icon}] {evidence_labels}\n"
             f"   Confidence: {memory.confidence:.1f}"
         )
-        if citation.message:
-            lines.append(f"   Note: {citation.message}")
+        if memory.validation_message:
+            lines.append(f"   Note: {memory.validation_message}")
 
     lines.append(f"\nOverall confidence: {result.confidence:.2f}")
     return "\n".join(lines)

@@ -52,13 +52,19 @@ class Memory:
         self._embedding = embedding
         self._content_validator = content_validator
         self._embedding_ready = False
+        self._adds_since_refit = 0
+        self._refit_threshold = 10
 
         # Try to restore embedding provider state
         if self._embedding is not None:
             self._try_restore_embedding()
 
     def _try_restore_embedding(self) -> None:
-        """Try to restore embedding provider state from DB."""
+        """Try to restore embedding provider state from DB.
+
+        After restoring, checks if new un-embedded memories exist and triggers
+        a refit if the gap exceeds the threshold.
+        """
         if self._embedding is None:
             return
         state = self._store.load_provider_state("default")
@@ -66,20 +72,29 @@ class Memory:
             try:
                 self._embedding = type(self._embedding).loads(state)
                 self._embedding_ready = True
+                # Check if there are un-embedded memories from previous sessions
+                total = self._store.count()
+                embedded = self._store.count_embeddings(self._embedding.model_id)
+                gap = total - embedded
+                if gap >= self._refit_threshold:
+                    self._fit_embedding()
+                elif gap > 0:
+                    self._adds_since_refit = gap
             except Exception:
                 pass
 
     def _fit_embedding(self) -> None:
-        """Fit embedding provider on all stored memories and persist state."""
+        """Full refit: rebuild vocab from all memories and recompute all embeddings."""
         if self._embedding is None:
             return
-        all_records = self._store.list_all(limit=10000)
+        all_records = self._store.list_all(limit=None)
         if not all_records:
             return
 
         texts = [r.content for r in all_records]
         self._embedding.fit(texts)
         self._embedding_ready = True
+        self._adds_since_refit = 0
 
         # Persist provider state
         self._store.save_provider_state(
@@ -90,6 +105,13 @@ class Memory:
         vectors = self._embedding.embed_documents(texts)
         for record, vector in zip(all_records, vectors):
             self._store.save_embedding(record.id, self._embedding.model_id, vector)
+
+    def _embed_single(self, record: MemoryRecord) -> None:
+        """Compute and store embedding for a single record using existing vocab."""
+        if self._embedding is None or not self._embedding_ready:
+            return
+        vectors = self._embedding.embed_documents([record.content])
+        self._store.save_embedding(record.id, self._embedding.model_id, vectors[0])
 
     def add(
         self,
@@ -174,9 +196,15 @@ class Memory:
 
         self._store.save(record)
 
-        # Re-fit embedding (TF-IDF vocab changes with new documents)
+        # Embedding: incremental for existing vocab, full refit periodically
         if self._embedding is not None:
-            self._fit_embedding()
+            if not self._embedding_ready:
+                self._fit_embedding()
+            else:
+                self._embed_single(record)
+                self._adds_since_refit += 1
+                if self._adds_since_refit >= self._refit_threshold:
+                    self._fit_embedding()
 
         return record
 
@@ -372,7 +400,7 @@ class Memory:
 
     def validate(self) -> list[MemoryRecord]:
         """Validate all memories and return those that are stale or invalid."""
-        all_memories = self._store.list_all(limit=10000)
+        all_memories = self._store.list_all(limit=None)
         problematic = []
 
         for record in all_memories:
@@ -384,7 +412,7 @@ class Memory:
 
     def status(self) -> dict:
         """Get summary status of all memories."""
-        all_memories = self._store.list_all(limit=10000)
+        all_memories = self._store.list_all(limit=None)
         counts = {s: 0 for s in ValidationStatus}
         for record in all_memories:
             counts[record.validation_status] += 1
@@ -479,7 +507,7 @@ class Memory:
 
     def compact(self) -> CompactResult:
         """Remove expired memories and return cleanup stats."""
-        all_memories = self._store.list_all(limit=10000)
+        all_memories = self._store.list_all(limit=None)
         total_before = len(all_memories)
         expired_removed = 0
 
@@ -561,8 +589,8 @@ class Memory:
 
     def eval_metrics(self) -> EvalMetrics:
         """Compute evaluation metrics for the memory system."""
-        all_memories = self._store.list_all(limit=10000)
-        logs = self._store.get_retrieval_stats(limit=10000)
+        all_memories = self._store.list_all(limit=None)
+        logs = self._store.get_retrieval_stats(limit=None)
         s = self.status()
 
         avg_latency = sum(l.latency_ms for l in logs) / len(logs) if logs else 0.0

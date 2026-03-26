@@ -71,9 +71,9 @@ testpaths = ["tests"]
         banner("Step 2: Query — citations validated automatically")
 
         result = mem.query("linting")
-        for m, c in zip(result.memories, result.citations):
+        for m in result.memories:
             print(f"  → {m.content}")
-            print(f"    Citation: {c.status.value}")
+            print(f"    Citation: {m.validation_status.value}")
 
         # ── Step 3: Validate all ──
         banner("Step 3: Validate all memories")

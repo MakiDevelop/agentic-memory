@@ -8,11 +8,11 @@
 
 > **`pip install memcite`** → `from agentic_memory import Memory` → CLI: `am`
 
-**Agentic Memory is an infrastructure layer for AI-assisted software maintenance, enabling agents to retain context across development workflows.**
+**The memory governance layer for AI agents.** Every memory has a source, every source gets verified — like unit tests for agent context.
 
-Open-source repo memory for AI agents. Every memory has a source, every source gets verified.
+Other memory tools help agents *remember*. memcite helps agents *remember correctly* — with forced citations, automatic stale detection, and CI-ready validation.
 
-開源的 repo 記憶系統。每條記憶都有來源，每個來源都會被驗證。
+開源的 AI agent 記憶治理層。不只是記住，而是記得正確 — 強制引用、過期偵測、CI 驗證一條龍。
 
 ---
 
@@ -276,6 +276,26 @@ Or use: `am claude-setup` (auto-generates `.mcp.json` + memory protocol in `CLAU
 | `memory_list` | List all stored memories |
 | `memory_delete` | Delete a specific memory |
 
+## CI Integration (GitHub Action)
+
+Add memory linting to your CI pipeline — catch stale agent context before it ships:
+
+```yaml
+# .github/workflows/memory-lint.yml
+name: Memory Lint
+on: [pull_request]
+jobs:
+  memory-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: MakiDevelop/agentic-memory@main
+        with:
+          command: "validate --exit-code"
+```
+
+This fails the build if any memory has stale or invalid citations — like a linter, but for agent context.
+
 ## REST API
 
 ```bash
@@ -329,7 +349,9 @@ This project focuses on the **memory and context layer** for AI-assisted mainten
 - [x] REST API server — FastAPI with OpenAPI docs
 - [x] Agentic features — kind, importance, TTL, dedup, conflict detection
 - [x] Adoption tracking — measure which memories agents actually use
-- [ ] GitHub App / GitLab integration
+- [x] GitHub Action — CI memory linting with `am validate --exit-code`
+- [x] Path traversal protection — repo-scoped file access enforcement
+- [ ] Git Watch Mode — auto-suggest memories from commit diffs
 - [ ] LangChain / LlamaIndex integration
 - [ ] Web dashboard
 
@@ -525,6 +547,8 @@ python examples/demo.py
 - **CLI** — `am add`、`am query`、`am validate`、`am status`、`am list`
 - **MCP Server** — 10 個工具，支援 Claude Code / Cursor
 - **REST API** — FastAPI + OpenAPI 文件
+- **GitHub Action** — CI 記憶品質檢查，過期引用直接擋 PR
+- **路徑安全** — repo 邊界強制檢查，防止路徑穿越
 
 ## 與其他方案比較
 

@@ -286,11 +286,21 @@ class SQLiteStore:
         ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
-    def list_all(self, limit: int = 100) -> list[MemoryRecord]:
-        """List all memories."""
-        rows = self._conn.execute(
-            "SELECT * FROM memories ORDER BY updated_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+    def count(self) -> int:
+        """Return total number of memories."""
+        row = self._conn.execute("SELECT COUNT(*) as cnt FROM memories").fetchone()
+        return row["cnt"]
+
+    def list_all(self, limit: int | None = 100) -> list[MemoryRecord]:
+        """List all memories. Pass limit=None to fetch all."""
+        if limit is None:
+            rows = self._conn.execute(
+                "SELECT * FROM memories ORDER BY updated_at DESC"
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM memories ORDER BY updated_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
     def delete(self, memory_id: str) -> bool:
@@ -382,6 +392,14 @@ class SQLiteStore:
         ).fetchone()
         return row["cnt"] > 0
 
+    def count_embeddings(self, model_id: str) -> int:
+        """Return number of embeddings for the given model."""
+        row = self._conn.execute(
+            "SELECT COUNT(*) as cnt FROM memory_embeddings WHERE model_id = ?",
+            (model_id,),
+        ).fetchone()
+        return row["cnt"]
+
     def close(self) -> None:
         self._conn.close()
 
@@ -409,11 +427,16 @@ class SQLiteStore:
         )
         self._conn.commit()
 
-    def get_retrieval_stats(self, limit: int = 100) -> list[RetrievalLog]:
-        """Get recent retrieval logs."""
-        rows = self._conn.execute(
-            "SELECT * FROM retrieval_logs ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+    def get_retrieval_stats(self, limit: int | None = 100) -> list[RetrievalLog]:
+        """Get recent retrieval logs. Pass limit=None to fetch all."""
+        if limit is None:
+            rows = self._conn.execute(
+                "SELECT * FROM retrieval_logs ORDER BY created_at DESC"
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM retrieval_logs ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [
             RetrievalLog(
                 query=row["query"],
