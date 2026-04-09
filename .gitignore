@@ -13,3 +13,7 @@ venv/
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
+
+# Claude Code project config
+CLAUDE.md
+CLAUDE-*.md
