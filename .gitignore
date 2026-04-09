@@ -17,3 +17,14 @@ venv/
 # Claude Code project config
 CLAUDE.md
 CLAUDE-*.md
+
+# Claude Code project config
+CLAUDE.md
+.claude/
+
+# Build artifacts
+dist/
+
+# Test/dev
+.pytest_cache/
+.venv/
