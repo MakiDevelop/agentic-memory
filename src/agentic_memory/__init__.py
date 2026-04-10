@@ -14,6 +14,7 @@ from agentic_memory.content_validator import (
 )
 from agentic_memory.embedding import EmbeddingProvider, TFIDFEmbedding
 from agentic_memory.evidence import FileRef, GitCommitRef, ManualRef, URLRef
+from agentic_memory.federation import FederatedMemory, FederatedQueryResult, FederatedResult
 from agentic_memory.graph import MemoryEdge, MemoryGraph, RelationType
 from agentic_memory.memory import Memory
 from agentic_memory.models import (
@@ -58,4 +59,7 @@ __all__ = [
     "MemoryGraph",
     "MemoryEdge",
     "RelationType",
+    "FederatedMemory",
+    "FederatedQueryResult",
+    "FederatedResult",
 ]
