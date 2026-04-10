@@ -16,6 +16,8 @@ from agentic_memory.embedding import EmbeddingProvider, TFIDFEmbedding
 from agentic_memory.evidence import FileRef, GitCommitRef, ManualRef, URLRef
 from agentic_memory.federation import FederatedMemory, FederatedQueryResult, FederatedResult
 from agentic_memory.graph import MemoryEdge, MemoryGraph, RelationType
+from agentic_memory.hooks import install_precommit_hook, is_installed, uninstall_precommit_hook
+from agentic_memory.lifecycle import LifecycleManager, LifecycleResult
 from agentic_memory.memory import Memory
 from agentic_memory.models import (
     AddResult,
@@ -62,4 +64,9 @@ __all__ = [
     "FederatedMemory",
     "FederatedQueryResult",
     "FederatedResult",
+    "LifecycleManager",
+    "LifecycleResult",
+    "install_precommit_hook",
+    "uninstall_precommit_hook",
+    "is_installed",
 ]

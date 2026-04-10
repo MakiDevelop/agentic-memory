@@ -11,6 +11,7 @@ from agentic_memory.content_validator import ContentValidator, read_evidence_con
 from agentic_memory.embedding import EmbeddingProvider
 from agentic_memory.evidence import Evidence, FileRef
 from agentic_memory.graph import MemoryEdge, MemoryGraph
+from agentic_memory.lifecycle import LifecycleManager, LifecycleResult
 from agentic_memory.models import (
     AddResult,
     Citation,
@@ -515,6 +516,41 @@ class Memory:
         conflicts = [self._store.get(cid) for cid in record.conflict_ids]
         conflicts = [c for c in conflicts if c is not None]
         return AddResult(record=record, was_duplicate=was_duplicate, conflicts=conflicts)
+
+    # --- Lifecycle automation ---
+
+    def auto_expire(self) -> int:
+        """Remove memories past their TTL. Returns count removed."""
+        return LifecycleManager(self).auto_expire()
+
+    def auto_downgrade_stale(self, importance_penalty: int = 1) -> int:
+        """Downgrade importance of stale memories. Returns count downgraded."""
+        return LifecycleManager(self).auto_downgrade_stale(importance_penalty=importance_penalty)
+
+    def auto_compact_by_adoption(
+        self,
+        min_adoption_count: int = 0,
+        min_age_days: int = 30,
+    ) -> int:
+        """Remove low-adoption memories older than min_age_days (protects importance=3)."""
+        return LifecycleManager(self).auto_compact_by_adoption(
+            min_adoption_count=min_adoption_count,
+            min_age_days=min_age_days,
+        )
+
+    def run_lifecycle(
+        self,
+        *,
+        min_adoption_count: int = 0,
+        min_age_days: int = 30,
+        importance_penalty: int = 1,
+    ) -> LifecycleResult:
+        """Run the full lifecycle pipeline: expire → downgrade → compact."""
+        return LifecycleManager(self).run_all(
+            min_adoption_count=min_adoption_count,
+            min_age_days=min_age_days,
+            importance_penalty=importance_penalty,
+        )
 
     def compact(self) -> CompactResult:
         """Remove expired memories and return cleanup stats."""
