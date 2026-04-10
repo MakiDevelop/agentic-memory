@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from agentic_memory import AddResult, CompactResult, EvalMetrics, ManualRef, Memory, MemoryKind
+from agentic_memory import AddResult, CompactResult, EvalMetrics, ManualRef, Memory
 
 
 class TestConflictDetection:
@@ -211,7 +211,7 @@ class TestEvalMetrics:
     def test_eval_metrics_adoption_rate(self, tmp_path):
         mem = Memory(str(tmp_path))
         r1 = mem.add("fact one for testing", evidence=ManualRef("a"))
-        r2 = mem.add("fact two for testing", evidence=ManualRef("b"))
+        mem.add("fact two for testing", evidence=ManualRef("b"))
         mem.query("fact testing")  # returns 2 results
 
         mem.mark_adopted(r1.id, query="fact testing")

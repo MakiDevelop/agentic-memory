@@ -6,6 +6,7 @@ from agentic_memory.admission import (
     HeuristicAdmissionController,
     LLMAdmissionController,
 )
+from agentic_memory.backends import StorageBackend
 from agentic_memory.content_validator import (
     ContentValidator,
     KeywordOverlapValidator,
@@ -13,6 +14,7 @@ from agentic_memory.content_validator import (
 )
 from agentic_memory.embedding import EmbeddingProvider, TFIDFEmbedding
 from agentic_memory.evidence import FileRef, GitCommitRef, ManualRef, URLRef
+from agentic_memory.graph import MemoryEdge, MemoryGraph, RelationType
 from agentic_memory.memory import Memory
 from agentic_memory.models import (
     AddResult,
@@ -47,9 +49,13 @@ __all__ = [
     "AlwaysAdmit",
     "HeuristicAdmissionController",
     "LLMAdmissionController",
+    "StorageBackend",
     "EmbeddingProvider",
     "TFIDFEmbedding",
     "ContentValidator",
     "KeywordOverlapValidator",
     "LLMContentValidator",
+    "MemoryGraph",
+    "MemoryEdge",
+    "RelationType",
 ]

@@ -1,0 +1,2 @@
+-- Schema v3: multi-evidence support (no DDL changes needed)
+-- evidence_json column already handles both dict and list formats

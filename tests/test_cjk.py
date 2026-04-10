@@ -2,8 +2,8 @@
 
 from unittest import mock
 
-from agentic_memory import Memory, ManualRef, TFIDFEmbedding
-from agentic_memory.tokenizer import has_cjk, tokenize_for_fts, _CJK_STOP_CHARS
+from agentic_memory import ManualRef, Memory, TFIDFEmbedding
+from agentic_memory.tokenizer import has_cjk, tokenize_for_fts
 
 
 class TestTokenizer:
@@ -49,8 +49,8 @@ class TestTokenizer:
 
     def test_multiword_query_without_jieba(self, tmp_path):
         """Without jieba, CJK queries should still find results via OR."""
-        import agentic_memory.tokenizer as tok
         import agentic_memory.store as store_mod
+        import agentic_memory.tokenizer as tok
 
         # Both store and query without jieba — consistent char-level tokenization
         with mock.patch.object(tok, "_jieba_available", False), \
@@ -100,8 +100,9 @@ class TestFTS5Chinese:
         mem = Memory(str(tmp_path))
         record = mem.add("舊的設定", evidence=ManualRef("v1"))
         # Overwrite via store
-        from agentic_memory.models import MemoryRecord, ValidationStatus
         from datetime import datetime
+
+        from agentic_memory.models import MemoryRecord, ValidationStatus
 
         updated = MemoryRecord(
             id=record.id,

@@ -1,10 +1,7 @@
 """Tests for P0 (content snapshot + fuzzy relocation), P1 (validate_detail), P2 (multi-evidence)."""
 
-import pytest
-
 from agentic_memory import FileRef, ManualRef, Memory, ValidationResult, ValidationStatus
 from agentic_memory.evidence import _find_snippet_in_file, _read_lines
-
 
 # --- P0: Content Snapshot + Fuzzy Relocation ---
 
@@ -60,12 +57,27 @@ class TestFuzzyRelocation:
     def test_relocate_multiple_insertions(self, tmp_path):
         """Multiple lines inserted before the referenced range."""
         f = tmp_path / "config.py"
-        f.write_text("AAA = 'alpha'\nBBB = 'bravo'\nCCC = 'charlie'\nDATABASE_HOST = 'localhost'\nDATABASE_PORT = 5432\n")
+        f.write_text(
+            "AAA = 'alpha'\n"
+            "BBB = 'bravo'\n"
+            "CCC = 'charlie'\n"
+            "DATABASE_HOST = 'localhost'\n"
+            "DATABASE_PORT = 5432\n"
+        )
         ref = FileRef("config.py", lines=(4, 5))
         ref.capture_hash(str(tmp_path))
 
         # Insert 3 lines before
-        f.write_text("X = 0\nY = 0\nZ = 0\nAAA = 'alpha'\nBBB = 'bravo'\nCCC = 'charlie'\nDATABASE_HOST = 'localhost'\nDATABASE_PORT = 5432\n")
+        f.write_text(
+            "X = 0\n"
+            "Y = 0\n"
+            "Z = 0\n"
+            "AAA = 'alpha'\n"
+            "BBB = 'bravo'\n"
+            "CCC = 'charlie'\n"
+            "DATABASE_HOST = 'localhost'\n"
+            "DATABASE_PORT = 5432\n"
+        )
 
         status, msg = ref.validate(str(tmp_path))
         assert status == ValidationStatus.VALID
@@ -284,8 +296,8 @@ class TestMultiEvidence:
 
     def test_legacy_single_evidence_db(self, tmp_path):
         """Old DB with single evidence JSON should still load."""
-        import sqlite3
         import json
+        import sqlite3
 
         db_path = tmp_path / ".agentic-memory.db"
         conn = sqlite3.connect(str(db_path))

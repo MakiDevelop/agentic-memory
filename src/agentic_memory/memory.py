@@ -10,9 +10,18 @@ from agentic_memory.admission import AdmissionController, AlwaysAdmit
 from agentic_memory.content_validator import ContentValidator, read_evidence_content
 from agentic_memory.embedding import EmbeddingProvider
 from agentic_memory.evidence import Evidence, FileRef
+from agentic_memory.graph import MemoryEdge, MemoryGraph
 from agentic_memory.models import (
-    AddResult, Citation, CompactResult, EvalMetrics, MemoryKind, MemoryRecord,
-    QueryResult, RetrievalLog, ValidationStatus, _content_hash,
+    AddResult,
+    Citation,
+    CompactResult,
+    EvalMetrics,
+    MemoryKind,
+    MemoryRecord,
+    QueryResult,
+    RetrievalLog,
+    ValidationStatus,
+    _content_hash,
 )
 from agentic_memory.store import SQLiteStore
 
@@ -51,6 +60,7 @@ class Memory:
         self._admission = admission or AlwaysAdmit()
         self._embedding = embedding
         self._content_validator = content_validator
+        self._graph = MemoryGraph(self._store._conn)
         self._embedding_ready = False
         self._adds_since_refit = 0
         self._refit_threshold = 10
@@ -334,7 +344,8 @@ class Memory:
         return self._store.get(memory_id)
 
     def delete(self, memory_id: str) -> bool:
-        """Delete a memory by ID."""
+        """Delete a memory by ID and clean up its graph edges."""
+        self._graph.remove_edges_for_memory(memory_id)
         return self._store.delete(memory_id)
 
     def _validate_record(self, record: MemoryRecord) -> None:
@@ -593,12 +604,12 @@ class Memory:
         logs = self._store.get_retrieval_stats(limit=None)
         s = self.status()
 
-        avg_latency = sum(l.latency_ms for l in logs) / len(logs) if logs else 0.0
-        avg_results = sum(l.result_count for l in logs) / len(logs) if logs else 0.0
+        avg_latency = sum(log_entry.latency_ms for log_entry in logs) / len(logs) if logs else 0.0
+        avg_results = sum(log_entry.result_count for log_entry in logs) / len(logs) if logs else 0.0
 
         # Adoption metrics
         total_adoptions = self._store.get_adoption_total()
-        total_returned = sum(l.result_count for l in logs)
+        total_returned = sum(log_entry.result_count for log_entry in logs)
         adoption_rate = total_adoptions / total_returned if total_returned > 0 else 0.0
 
         return EvalMetrics(
@@ -615,6 +626,93 @@ class Memory:
     def list_all(self, limit: int = 100) -> list[MemoryRecord]:
         """List all memories."""
         return self._store.list_all(limit=limit)
+
+    # --- Graph operations ---
+
+    def add_relation(
+        self,
+        source_id: str,
+        target_id: str,
+        relation: str,
+        metadata: dict | None = None,
+    ) -> MemoryEdge:
+        """Add a directed relationship between two memories.
+
+        Args:
+            source_id: Source memory ID.
+            target_id: Target memory ID.
+            relation: One of 'contradicts', 'supports', 'supersedes', 'depends_on'.
+            metadata: Optional metadata dict.
+
+        Raises:
+            ValueError: If either memory doesn't exist, self-reference, or cycle.
+        """
+        if self._store.get(source_id) is None:
+            raise ValueError(f"Source memory not found: {source_id}")
+        if self._store.get(target_id) is None:
+            raise ValueError(f"Target memory not found: {target_id}")
+
+        edge = self._graph.add_edge(source_id, target_id, relation, metadata)
+
+        if relation == "supersedes":
+            self._store._conn.execute(
+                "UPDATE memories SET superseded_by = ? WHERE id = ?",
+                (source_id, target_id),
+            )
+            self._store._conn.commit()
+
+        return edge
+
+    def remove_relation(self, source_id: str, target_id: str, relation: str) -> bool:
+        """Remove a relationship between two memories."""
+        return self._graph.remove_edge(source_id, target_id, relation)
+
+    def get_relations(
+        self,
+        memory_id: str,
+        relation: str | None = None,
+        direction: str = "both",
+    ) -> list[MemoryEdge]:
+        """Get all relationships for a memory."""
+        return self._graph.get_edges(memory_id, relation=relation, direction=direction)
+
+    def traverse(
+        self,
+        memory_id: str,
+        relation: str,
+        max_depth: int = 3,
+    ) -> list[MemoryRecord]:
+        """Traverse graph from a memory, following a relation type.
+
+        Returns list of MemoryRecords reachable via the given relation.
+        """
+        ids = self._graph.traverse(memory_id, relation, max_depth=max_depth)
+        records = []
+        for mid in ids:
+            r = self._store.get(mid)
+            if r is not None:
+                records.append(r)
+        return records
+
+    def supersede(
+        self,
+        old_id: str,
+        new_content: str,
+        evidence: Evidence | list[Evidence],
+        **kwargs,
+    ) -> MemoryRecord:
+        """Add a new memory that supersedes an existing one.
+
+        Creates the new memory, adds a 'supersedes' edge, and marks the old memory.
+        Extra kwargs are passed to add() (kind, importance, tags, etc.).
+        """
+        old = self._store.get(old_id)
+        if old is None:
+            raise ValueError(f"Memory to supersede not found: {old_id}")
+
+        new_record = self.add(new_content, evidence, **kwargs)
+        self.add_relation(new_record.id, old_id, "supersedes")
+        return new_record
 
     def close(self) -> None:
         """Close the database connection."""

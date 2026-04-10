@@ -1,13 +1,13 @@
 """Tests for content-level validation."""
 
 from agentic_memory import (
-    Memory,
     FileRef,
-    ManualRef,
     KeywordOverlapValidator,
     LLMContentValidator,
+    ManualRef,
+    Memory,
 )
-from agentic_memory.content_validator import read_evidence_content, _extract_keywords
+from agentic_memory.content_validator import _extract_keywords, read_evidence_content
 
 
 class TestExtractKeywords:

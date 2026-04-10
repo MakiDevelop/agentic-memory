@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from agentic_memory.evidence import evidence_from_dict
+from agentic_memory.migration import run_migrations
 from agentic_memory.models import MemoryKind, MemoryRecord, RetrievalLog, ValidationStatus, _content_hash
 from agentic_memory.tokenizer import has_cjk, is_jieba_available, tokenize_for_fts
 
@@ -77,17 +78,15 @@ class SQLiteStore:
             );
         """)
 
-        version = self._get_schema_version()
-        if version < 2:
-            self._upgrade_fts_v2()
-        if version < 3:
-            self._upgrade_v3()
-        if version < 4:
-            self._upgrade_v4()
-        if version < 5:
-            self._upgrade_v5()
-
-        self._conn.commit()
+        run_migrations(
+            self._conn,
+            db_path=self.db_path,
+            python_hooks={
+                2: self._python_migrate_v2,
+                4: self._python_migrate_v4,
+                6: self._python_migrate_v6,
+            },
+        )
 
     def _get_schema_version(self) -> int:
         try:
@@ -96,35 +95,31 @@ class SQLiteStore:
         except sqlite3.OperationalError:
             return 0
 
-    def _upgrade_fts_v2(self) -> None:
-        """Upgrade FTS5 to standalone table with CJK tokenization support."""
-        self._conn.executescript("""
-            DROP TRIGGER IF EXISTS memories_ai;
-            DROP TRIGGER IF EXISTS memories_ad;
-            DROP TRIGGER IF EXISTS memories_au;
-            DROP TABLE IF EXISTS memories_fts;
-            CREATE VIRTUAL TABLE memories_fts USING fts5(content);
-        """)
+    def _python_migrate_v2(self, conn: sqlite3.Connection) -> None:
+        """Prepare tokenized content for the v2 standalone FTS migration."""
+        conn.execute("DROP TABLE IF EXISTS temp._v002_fts_seed")
+        conn.execute("CREATE TEMP TABLE _v002_fts_seed (rowid INTEGER PRIMARY KEY, content TEXT NOT NULL)")
 
-        rows = self._conn.execute("SELECT rowid, content FROM memories").fetchall()
+        rows = conn.execute("SELECT rowid, content FROM memories").fetchall()
         for row in rows:
             tokenized = tokenize_for_fts(row[1])
-            self._conn.execute(
-                "INSERT INTO memories_fts(rowid, content) VALUES (?, ?)",
+            conn.execute(
+                "INSERT INTO temp._v002_fts_seed(rowid, content) VALUES (?, ?)",
                 (row[0], tokenized),
             )
 
-        self._conn.execute(
-            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '2')"
-        )
+    def _python_migrate_v6(self, conn: sqlite3.Connection) -> None:
+        """Schema v6: add lifecycle columns for graph supersedes tracking."""
+        for col_def in [
+            "superseded_by TEXT DEFAULT NULL",
+            "auto_downgraded INTEGER DEFAULT 0",
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE memories ADD COLUMN {col_def}")
+            except sqlite3.OperationalError:
+                pass
 
-    def _upgrade_v3(self) -> None:
-        """Mark schema v3: multi-evidence support (no DDL changes, evidence_json handles both dict and list)."""
-        self._conn.execute(
-            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '3')"
-        )
-
-    def _upgrade_v4(self) -> None:
+    def _python_migrate_v4(self, conn: sqlite3.Connection) -> None:
         """Schema v4: kind, importance, TTL, source_hash, retrieval_logs."""
         # Add new columns (ALTER TABLE ADD COLUMN is safe in SQLite)
         for col_def in [
@@ -134,54 +129,17 @@ class SQLiteStore:
             "source_hash TEXT DEFAULT ''",
         ]:
             try:
-                self._conn.execute(f"ALTER TABLE memories ADD COLUMN {col_def}")
+                conn.execute(f"ALTER TABLE memories ADD COLUMN {col_def}")
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
         # Backfill source_hash for existing records
-        rows = self._conn.execute("SELECT id, content FROM memories WHERE source_hash = '' OR source_hash IS NULL").fetchall()
+        rows = conn.execute("SELECT id, content FROM memories WHERE source_hash = '' OR source_hash IS NULL").fetchall()
         for row in rows:
-            self._conn.execute(
+            conn.execute(
                 "UPDATE memories SET source_hash = ? WHERE id = ?",
                 (_content_hash(row[1]), row[0]),
             )
-
-        # Index for dedup lookups
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_hash ON memories(source_hash)")
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)")
-
-        # Retrieval logs table
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS retrieval_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                query TEXT NOT NULL,
-                returned_ids TEXT NOT NULL,
-                result_count INTEGER NOT NULL,
-                latency_ms REAL DEFAULT 0.0,
-                created_at TEXT NOT NULL
-            )
-        """)
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_created_at ON retrieval_logs(created_at)")
-
-        self._conn.execute(
-            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '4')"
-        )
-
-    def _upgrade_v5(self) -> None:
-        """Schema v5: adoption_logs table for tracking which memories agents actually use."""
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS adoption_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                memory_id TEXT NOT NULL,
-                query TEXT DEFAULT '',
-                agent_name TEXT DEFAULT '',
-                created_at TEXT NOT NULL
-            )
-        """)
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_adoption_memory ON adoption_logs(memory_id)")
-        self._conn.execute(
-            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', '5')"
-        )
 
     def _serialize_evidence(self, evidence) -> str:
         """Serialize evidence (single or list) to JSON string."""
@@ -474,6 +432,7 @@ class SQLiteStore:
         importance_val = row["importance"] if "importance" in cols else 1
         ttl_val = row["ttl_seconds"] if "ttl_seconds" in cols else None
         hash_val = row["source_hash"] if "source_hash" in cols else ""
+        superseded_by_val = row["superseded_by"] if "superseded_by" in cols else None
         return MemoryRecord(
             id=row["id"],
             content=row["content"],
@@ -488,4 +447,5 @@ class SQLiteStore:
             importance=importance_val,
             ttl_seconds=ttl_val,
             source_hash=hash_val,
+            superseded_by=superseded_by_val,
         )

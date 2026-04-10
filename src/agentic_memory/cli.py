@@ -216,8 +216,21 @@ def main(argv: list[str] | None = None) -> None:
     add_p.add_argument("--commit-file", help="File path within the commit")
     add_p.add_argument("--note", "-n", help="Manual evidence note")
     add_p.add_argument("--tag", "-t", action="append", help="Tags (repeatable)")
-    add_p.add_argument("--kind", "-k", choices=["fact", "rule", "antipattern", "preference", "decision"], default="fact", help="Memory kind (default: fact)")
-    add_p.add_argument("--importance", "-i", type=int, default=1, choices=[0, 1, 2, 3], help="Importance 0-3 (default: 1)")
+    add_p.add_argument(
+        "--kind",
+        "-k",
+        choices=["fact", "rule", "antipattern", "preference", "decision"],
+        default="fact",
+        help="Memory kind (default: fact)",
+    )
+    add_p.add_argument(
+        "--importance",
+        "-i",
+        type=int,
+        default=1,
+        choices=[0, 1, 2, 3],
+        help="Importance 0-3 (default: 1)",
+    )
     add_p.add_argument("--ttl", type=int, default=None, help="TTL in seconds (default: never expires)")
 
     # query
@@ -225,12 +238,22 @@ def main(argv: list[str] | None = None) -> None:
     query_p.add_argument("query", help="Search query")
     query_p.add_argument("--limit", type=int, default=5, help="Max results")
     query_p.add_argument("--no-validate", action="store_true", help="Skip citation validation")
-    query_p.add_argument("--kind", "-k", choices=["fact", "rule", "antipattern", "preference", "decision"], default=None, help="Filter by kind")
+    query_p.add_argument(
+        "--kind",
+        "-k",
+        choices=["fact", "rule", "antipattern", "preference", "decision"],
+        default=None,
+        help="Filter by kind",
+    )
     query_p.add_argument("--min-importance", type=int, default=0, help="Minimum importance (0-3)")
 
     # validate
     validate_p = sub.add_parser("validate", help="Validate all memories")
-    validate_p.add_argument("--exit-code", action="store_true", help="Exit with code 1 if any memory is stale/invalid (for CI)")
+    validate_p.add_argument(
+        "--exit-code",
+        action="store_true",
+        help="Exit with code 1 if any memory is stale/invalid (for CI)",
+    )
 
     # status
     sub.add_parser("status", help="Show memory status")

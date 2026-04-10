@@ -55,6 +55,7 @@ class MemoryRecord:
     ttl_seconds: int | None = None  # None=never expires
     source_hash: str = ""
     conflict_ids: list[str] = field(default_factory=list)  # IDs of potentially conflicting memories
+    superseded_by: str | None = None  # ID of the memory that supersedes this one
 
     @property
     def evidence_list(self) -> list[Evidence]:

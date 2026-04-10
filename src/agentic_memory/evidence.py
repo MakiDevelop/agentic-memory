@@ -255,9 +255,9 @@ class URLRef(Evidence):
 
         # Block private/loopback IPs to prevent SSRF
         try:
-            from urllib.parse import urlparse
             import ipaddress
             import socket
+            from urllib.parse import urlparse
             hostname = urlparse(self.url).hostname or ""
             # Resolve hostname to IP and check if private/loopback
             try:
@@ -324,12 +324,9 @@ class ManualRef(Evidence):
 
 def evidence_from_dict(data: dict[str, Any]) -> Evidence:
     """Deserialize evidence from a dictionary based on type field."""
-    type_map: dict[str, type[Evidence]] = {
-        "file": FileRef,
-        "git_commit": GitCommitRef,
-        "url": URLRef,
-        "manual": ManualRef,
-    }
+    from agentic_memory.plugins import get_evidence_registry
+
+    type_map = get_evidence_registry()
     evidence_type = data.get("type", "")
     cls = type_map.get(evidence_type)
     if cls is None:
