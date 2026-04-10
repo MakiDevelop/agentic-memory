@@ -31,7 +31,7 @@ from agentic_memory.models import (
     ValidationStatus,
 )
 
-__version__ = "0.8.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "Memory",
