@@ -1,0 +1,3 @@
+-- Schema v7: multi-model embeddings (TF-IDF + semantic can coexist).
+-- PK change from (memory_id) to (memory_id, model_id) handled by Python hook
+-- (SQLite cannot ALTER PRIMARY KEY — requires rename-recreate-copy).

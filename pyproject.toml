@@ -39,6 +39,10 @@ api = [
 embedding = [
     "sentence-transformers>=2.0",
 ]
+embedding-onnx = [
+    "onnxruntime>=1.15",
+    "sentence-transformers>=2.0",
+]
 langchain = [
     "langchain-core>=0.2",
 ]
@@ -63,6 +67,8 @@ sqlite = "agentic_memory.store:SQLiteStore"
 
 [project.entry-points."agentic_memory.search"]
 tfidf = "agentic_memory.embedding:TFIDFEmbedding"
+sentence_transformer = "agentic_memory.semantic:SentenceTransformerEmbedding"
+onnx = "agentic_memory.semantic:ONNXEmbedding"
 
 [project.urls]
 Homepage = "https://github.com/MakiDevelop/agentic-memory"

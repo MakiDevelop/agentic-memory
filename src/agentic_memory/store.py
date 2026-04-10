@@ -85,6 +85,7 @@ class SQLiteStore:
                 2: self._python_migrate_v2,
                 4: self._python_migrate_v4,
                 6: self._python_migrate_v6,
+                7: self._python_migrate_v7,
             },
         )
 
@@ -107,6 +108,33 @@ class SQLiteStore:
                 "INSERT INTO temp._v002_fts_seed(rowid, content) VALUES (?, ?)",
                 (row[0], tokenized),
             )
+
+    def _python_migrate_v7(self, conn: sqlite3.Connection) -> None:
+        """Schema v7: change memory_embeddings PK to (memory_id, model_id) for multi-model support."""
+        # Check if table exists
+        table_check = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'"
+        ).fetchone()
+        if not table_check:
+            return
+
+        # Rename-recreate-copy pattern (SQLite cannot ALTER PRIMARY KEY)
+        conn.execute("ALTER TABLE memory_embeddings RENAME TO _memory_embeddings_old")
+        conn.execute("""
+            CREATE TABLE memory_embeddings (
+                memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+                model_id TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                vector_blob BLOB NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (memory_id, model_id)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO memory_embeddings (memory_id, model_id, dim, vector_blob, updated_at)
+            SELECT memory_id, model_id, dim, vector_blob, updated_at FROM _memory_embeddings_old
+        """)
+        conn.execute("DROP TABLE _memory_embeddings_old")
 
     def _python_migrate_v6(self, conn: sqlite3.Connection) -> None:
         """Schema v6: add lifecycle columns for graph supersedes tracking."""
