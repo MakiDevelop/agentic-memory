@@ -76,10 +76,17 @@ Repository = "https://github.com/MakiDevelop/agentic-memory"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentic_memory"]
-include = ["src/agentic_memory/migrations/*.sql"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/agentic_memory/migrations/*.sql"]
+include = [
+    "src/agentic_memory/**/*.py",
+    "src/agentic_memory/migrations/*.sql",
+    "tests/**/*.py",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 120
