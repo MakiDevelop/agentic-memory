@@ -295,15 +295,15 @@ class Memory:
         # Filter expired memories (TTL)
         records = [r for r in records if not r.is_expired]
 
-        records = records[:limit]
-
-        # Validation
+        # Validation before limit so stale records don't consume slots
         if validate:
             for record in records:
                 self._validate_record(record)
 
         if not include_stale:
             records = [r for r in records if r.validation_status == ValidationStatus.VALID]
+
+        records = records[:limit]
 
         # Sort by importance (primary) then confidence (secondary)
         records.sort(key=lambda r: (r.importance, r.confidence), reverse=True)
@@ -393,7 +393,7 @@ class Memory:
         record.validation_status = status
         record.validation_message = message
 
-        if status == ValidationStatus.STALE:
+        if status == ValidationStatus.STALE and old_status != ValidationStatus.STALE:
             record.confidence = max(0.1, record.confidence * 0.5)
         elif status == ValidationStatus.INVALID:
             record.confidence = 0.0

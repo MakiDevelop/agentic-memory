@@ -39,6 +39,7 @@ class SQLiteStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path))
+        self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
 
@@ -236,40 +237,44 @@ class SQLiteStore:
     def search(self, query: str, limit: int = 10) -> list[MemoryRecord]:
         """Full-text search for memories. Tokenizes CJK text automatically."""
         tokenized = tokenize_for_fts(query)
-        tokens = [f'"{token}"' for token in tokenized.split() if token.strip()]
+        tokens = ['"' + token.replace('"', '""') + '"' for token in tokenized.split() if token.strip()]
         if not tokens:
             return []
-        # CJK character-level fallback (no jieba): use OR to avoid requiring all chars
-        # With jieba: use AND (word-level tokens are meaningful)
         if has_cjk(query) and not is_jieba_available():
             safe_query = " OR ".join(tokens)
         else:
             safe_query = " ".join(tokens)
-        rows = self._conn.execute(
-            """SELECT m.* FROM memories m
-               JOIN memories_fts fts ON m.rowid = fts.rowid
-               WHERE memories_fts MATCH ?
-               ORDER BY rank
-               LIMIT ?""",
-            (safe_query, limit),
-        ).fetchall()
+        try:
+            rows = self._conn.execute(
+                """SELECT m.* FROM memories m
+                   JOIN memories_fts fts ON m.rowid = fts.rowid
+                   WHERE memories_fts MATCH ?
+                   ORDER BY rank
+                   LIMIT ?""",
+                (safe_query, limit),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
         return [self._row_to_record(row) for row in rows]
 
     def search_any(self, query: str, limit: int = 10) -> list[MemoryRecord]:
         """Full-text search using OR logic (matches any token). Used for conflict detection."""
         tokenized = tokenize_for_fts(query)
-        tokens = [f'"{token}"' for token in tokenized.split() if token.strip()]
+        tokens = ['"' + token.replace('"', '""') + '"' for token in tokenized.split() if token.strip()]
         if not tokens:
             return []
         safe_query = " OR ".join(tokens)
-        rows = self._conn.execute(
-            """SELECT m.* FROM memories m
-               JOIN memories_fts fts ON m.rowid = fts.rowid
-               WHERE memories_fts MATCH ?
-               ORDER BY rank
-               LIMIT ?""",
-            (safe_query, limit),
-        ).fetchall()
+        try:
+            rows = self._conn.execute(
+                """SELECT m.* FROM memories m
+                   JOIN memories_fts fts ON m.rowid = fts.rowid
+                   WHERE memories_fts MATCH ?
+                   ORDER BY rank
+                   LIMIT ?""",
+                (safe_query, limit),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
         return [self._row_to_record(row) for row in rows]
 
     def count(self) -> int:

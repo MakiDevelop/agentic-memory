@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.1] — 2026-06-05
+
+Security and correctness patch. No API changes.
+
+### Security
+- **SSRF protection hardened**: check ALL resolved addresses (not just first), fail closed on DNS errors, block redirects to private/loopback IPs
+- **FTS query injection fixed**: escape embedded quotes in search tokens, catch `OperationalError` gracefully
+- **Path traversal guard added**: `content_validator.py` now validates paths stay within repo boundary
+
+### Fixed
+- Query `limit` applied after validation+filtering (stale records no longer consume result slots)
+- Confidence decay only triggers on status transition to STALE (no longer decays on repeated queries)
+- SQLite foreign keys enforced via `PRAGMA foreign_keys = ON` (prevents orphan rows on delete)
+- `graph.get_edges()` and `traverse()` raise `ValueError` on invalid direction (instead of producing bad SQL)
+- API query/list endpoints enforce limit bounds (`ge=1, le=100` / `le=500`)
+- FastAPI metadata version now reads from `__version__` (was hardcoded to 0.8.0)
+
 ## [1.0.0] — 2026-04-10
 
 Major release. Five new subsystems built on top of v0.8.0 — all backward-compatible, all opt-in.

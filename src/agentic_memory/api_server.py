@@ -13,7 +13,7 @@ from typing import Any
 
 try:
     import uvicorn
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, Query
     from pydantic import BaseModel, Field
     _API_AVAILABLE = True
 except ImportError:
@@ -43,6 +43,7 @@ except ImportError:
 
         post = get = delete = put = patch = _noop_decorator
 
+from agentic_memory import __version__
 from agentic_memory.evidence import FileRef, GitCommitRef, ManualRef, URLRef
 from agentic_memory.memory import Memory
 
@@ -50,7 +51,7 @@ if _API_AVAILABLE:
     app = FastAPI(
         title="agentic-memory",
         description="Repo memory for AI agents — every memory has a source, every source gets verified.",
-        version="0.8.0",
+        version=__version__,
     )
 else:
     app = FastAPI()  # type: ignore[assignment]
@@ -93,7 +94,7 @@ class QueryRequest(BaseModel):
     model_config = {"protected_namespaces": ()}
 
     query: str
-    limit: int = 5
+    limit: int = Field(default=5, ge=1, le=100)
     validate_citations: bool = Field(default=True, alias="validate")
     include_stale: bool = True
     kind: str | None = Field(default=None, description="Filter by kind: fact, rule, antipattern, preference, decision")
@@ -223,7 +224,7 @@ def query_memories(req: QueryRequest):
 
 
 @app.get("/memories", response_model=list[MemoryResponse])
-def list_memories(limit: int = 50):
+def list_memories(limit: int = Query(default=50, ge=1, le=500)):
     """List all stored memories."""
     mem = _get_memory()
     records = mem.list_all(limit=limit)

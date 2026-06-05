@@ -247,40 +247,61 @@ class URLRef(Evidence):
     url: str
     content_hash: str = field(default="", repr=False)
 
+    @staticmethod
+    def _is_blocked_address(hostname: str) -> tuple[bool, str]:
+        """Check ALL resolved addresses for a hostname. Fail closed on errors."""
+        import ipaddress
+        import socket
+
+        try:
+            addr = ipaddress.ip_address(hostname)
+            addrs = [addr]
+        except ValueError:
+            try:
+                infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                addrs = [ipaddress.ip_address(info[4][0]) for info in infos]
+            except (socket.gaierror, OSError) as e:
+                return True, f"DNS resolution failed for {hostname}: {e}"
+
+        if not addrs:
+            return True, f"No addresses resolved for {hostname}"
+
+        for addr in addrs:
+            if (
+                addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_reserved or addr.is_multicast or addr.is_unspecified
+            ):
+                return True, f"URL resolves to blocked address: {addr}"
+        return False, ""
+
     def validate(self, repo_path: str) -> tuple[ValidationStatus, str]:
-        # Restrict to safe URL schemes (case-insensitive per RFC 3986)
         url_lower = self.url.lower()
         if not url_lower.startswith(("http://", "https://")):
             return ValidationStatus.INVALID, f"URL scheme not allowed (only http/https): {self.url}"
 
-        # Block private/loopback IPs to prevent SSRF
-        try:
-            import ipaddress
-            import socket
-            from urllib.parse import urlparse
-            hostname = urlparse(self.url).hostname or ""
-            # Resolve hostname to IP and check if private/loopback
-            try:
-                addr = ipaddress.ip_address(hostname)
-            except ValueError:
-                # It's a hostname, resolve it
-                try:
-                    resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-                    addr = ipaddress.ip_address(resolved[0][4][0]) if resolved else None
-                except (socket.gaierror, OSError):
-                    addr = None
-            if addr and (addr.is_private or addr.is_loopback or addr.is_link_local):
-                return ValidationStatus.INVALID, f"URL targets private/loopback address: {hostname}"
-        except Exception:
-            pass  # If we can't check, proceed cautiously
+        from urllib.parse import urlparse
+        hostname = urlparse(self.url).hostname or ""
+        blocked, reason = self._is_blocked_address(hostname)
+        if blocked:
+            return ValidationStatus.INVALID, reason
 
-        # URL validation is best-effort: just check reachability
         try:
+            import urllib.error
             import urllib.request
 
+            class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    parsed = urlparse(newurl)
+                    redir_host = parsed.hostname or ""
+                    redir_blocked, _ = URLRef._is_blocked_address(redir_host)
+                    if redir_blocked:
+                        raise urllib.error.URLError(f"Redirect to blocked address: {redir_host}")
+                    return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+            opener = urllib.request.build_opener(_NoRedirectHandler)
             req = urllib.request.Request(self.url, method="HEAD")
             req.add_header("User-Agent", "agentic-memory/0.1")
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with opener.open(req, timeout=5) as resp:
                 if resp.status < 400:
                     return ValidationStatus.VALID, f"URL reachable (HTTP {resp.status})"
                 return ValidationStatus.STALE, f"URL returned HTTP {resp.status}"

@@ -120,6 +120,9 @@ class MemoryGraph:
         Args:
             direction: "outgoing" (as source), "incoming" (as target), or "both".
         """
+        if direction not in ("outgoing", "incoming", "both"):
+            raise ValueError(f"direction must be one of: outgoing, incoming, both (got {direction!r})")
+
         if isinstance(relation, str):
             relation = RelationType(relation)
 
@@ -156,6 +159,9 @@ class MemoryGraph:
 
         Returns memory IDs reachable from start_id (excluding start_id itself).
         """
+        if direction not in ("outgoing", "incoming", "both"):
+            raise ValueError(f"direction must be one of: outgoing, incoming, both (got {direction!r})")
+
         if isinstance(relation, str):
             relation = RelationType(relation)
 

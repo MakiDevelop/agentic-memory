@@ -23,7 +23,9 @@ class ContentValidationResult:
 def _read_single_evidence_content(evidence: Evidence, repo_path: str) -> str | None:
     """Read content from a single evidence source."""
     if isinstance(evidence, FileRef):
-        full_path = os.path.join(repo_path, evidence.path)
+        full_path = os.path.realpath(os.path.join(repo_path, evidence.path))
+        if not full_path.startswith(os.path.realpath(repo_path) + os.sep):
+            return None
         try:
             with open(full_path) as f:
                 lines = f.readlines()

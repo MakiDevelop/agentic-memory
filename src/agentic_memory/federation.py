@@ -23,7 +23,6 @@ from datetime import datetime
 from pathlib import Path
 
 from agentic_memory.models import MemoryRecord, ValidationStatus
-from agentic_memory.store import SQLiteStore
 
 
 @dataclass
@@ -87,7 +86,9 @@ class FederatedMemory:
         """)
         self._conn.commit()
 
-    def register(self, repo_path: str | Path, alias: str | None = None, db_name: str = ".agentic-memory.db") -> RegisteredRepo:
+    def register(
+        self, repo_path: str | Path, alias: str | None = None, db_name: str = ".agentic-memory.db",
+    ) -> RegisteredRepo:
         """Register a repo for federated queries.
 
         Args:
@@ -229,7 +230,7 @@ class _ReadOnlyStore:
         from agentic_memory.tokenizer import has_cjk, is_jieba_available, tokenize_for_fts
 
         tokenized = tokenize_for_fts(query)
-        tokens = [f'"{token}"' for token in tokenized.split() if token.strip()]
+        tokens = ['"' + token.replace('"', '""') + '"' for token in tokenized.split() if token.strip()]
         if not tokens:
             return []
 
